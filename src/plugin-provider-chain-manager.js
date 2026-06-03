@@ -314,27 +314,39 @@ async function showUI(profile) {
               </div>
             </div>
 
-            <div class="route-board mb-10">
+            <div class="mb-10" style="border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,.48), rgba(128,128,128,.04)); padding: 12px;">
               <div class="text-12 mb-10" style="opacity: .68">运行路径</div>
-              <div class="route-flow">
-                <div class="route-step" data-index="1">
-                  <div class="route-label">起点</div>
-                  <div class="route-value">本机</div>
+              <div style="width: min(430px, 100%); margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 0;">
+                <div :style="routeStepStyle(false, false)">
+                  <div :style="routeDotStyle(false, '1')">1</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">起点</div>
+                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">本机</div>
+                  </div>
                 </div>
-                <div class="route-connector"></div>
-                <div class="route-step pickable" data-index="2" :class="{ active: pickMode === 'via', empty: !selectedViaName }" @click="pickMode = 'via'">
-                  <div class="route-label">前置节点</div>
-                  <div class="route-value">{{ selectedViaName || '点击选择' }}</div>
+                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
+                <div :style="routeStepStyle(pickMode === 'via', true)" @click="pickMode = 'via'">
+                  <div :style="routeDotStyle(pickMode === 'via', '2')">{{ pickMode === 'via' ? '' : '2' }}</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">前置节点</div>
+                    <div :style="routeValueStyle(!selectedViaName)">{{ selectedViaName || '点击选择' }}</div>
+                  </div>
                 </div>
-                <div class="route-connector"></div>
-                <div class="route-step pickable" data-index="3" :class="{ active: pickMode === 'target', empty: !selectedTargetName }" @click="pickMode = 'target'">
-                  <div class="route-label">最终出口</div>
-                  <div class="route-value">{{ selectedTargetName || '点击选择' }}</div>
+                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
+                <div :style="routeStepStyle(pickMode === 'target', true)" @click="pickMode = 'target'">
+                  <div :style="routeDotStyle(pickMode === 'target', '3')">{{ pickMode === 'target' ? '' : '3' }}</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">最终出口</div>
+                    <div :style="routeValueStyle(!selectedTargetName)">{{ selectedTargetName || '点击选择' }}</div>
+                  </div>
                 </div>
-                <div class="route-connector"></div>
-                <div class="route-step" data-index="4">
-                  <div class="route-label">目标</div>
-                  <div class="route-value">网站</div>
+                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
+                <div :style="routeStepStyle(false, false)">
+                  <div :style="routeDotStyle(false, '4')">4</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">目标</div>
+                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">网站</div>
+                  </div>
                 </div>
               </div>
               <div class="text-12 mt-8" style="opacity: .64">生成结果：新增一个链式出口节点，原节点保持不变。</div>
@@ -358,9 +370,9 @@ async function showUI(profile) {
               <div v-for="section in filteredSections" :key="section.name" class="mb-10">
                 <div class="text-12 mb-6" style="opacity: .58">{{ section.name }}</div>
                 <div style="display: grid; gap: 6px;">
-                  <button v-for="node in section.nodes" :key="node.id" class="node-row" :class="{ selected: node.id === draftTargetId || node.id === draftViaId }" @click="chooseNode(node.id)">
-                    <span class="node-name">{{ node.name }}</span>
-                    <span class="node-meta">{{ node.type || section.type }}</span>
+                  <button v-for="node in section.nodes" :key="node.id" :style="nodeRowStyle(node.id === draftTargetId || node.id === draftViaId)" @click="chooseNode(node.id)">
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;">{{ node.name }}</span>
+                    <span style="opacity: .62; font-size: 12px;">{{ node.type || section.type }}</span>
                   </button>
                 </div>
               </div>
@@ -382,14 +394,14 @@ async function showUI(profile) {
               还没有链路。左侧选择一个出口和一个前置后点“保存链路”。
             </div>
 
-            <div v-for="(rule, index) in ruleViews" :key="rule.targetId" class="rule-card" :class="{ disabled: rule.enabled === false, invalid: rule.invalid }">
+            <div v-for="(rule, index) in ruleViews" :key="rule.targetId" :style="ruleCardStyle(rule)">
               <div class="flex justify-between gap-10">
                 <div style="min-width: 0; flex: 1;">
                   <div class="text-12 mb-5" style="opacity: .62">本机 -> 前置 -> 出口 -> 网站</div>
-                  <div class="rule-path">
-                    <span>{{ rule.viaName }}</span>
-                    <span class="arrow">-></span>
-                    <span>{{ rule.targetName }}</span>
+                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 700; line-height: 1.35;">
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ rule.viaName }}</span>
+                    <span style="opacity: .5; flex: 0 0 auto;">-></span>
+                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ rule.targetName }}</span>
                   </div>
                   <div class="text-12 mt-6" style="opacity: .66">新节点：{{ rule.chainName }}</div>
                   <div class="text-12 mt-4" style="opacity: .58">基于原节点：{{ rule.targetName }}；dialer-proxy: {{ rule.viaName }}</div>
@@ -419,166 +431,99 @@ async function showUI(profile) {
         </section>
       </div>`,
     setup() {
-      if (!document.getElementById('provider-chain-manager-style')) {
-        const style = document.createElement('style')
-        style.id = 'provider-chain-manager-style'
-        style.textContent = `
-        .route-board {
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          background: linear-gradient(180deg, rgba(255, 255, 255, .52), rgba(128, 128, 128, .04));
-          padding: 12px;
+      function routeStepStyle(active, pickable) {
+        return {
+          minHeight: '66px',
+          border: `1px solid ${active ? '#1677ff' : 'var(--border-color)'}`,
+          borderRadius: '8px',
+          background: active ? 'rgba(64, 128, 255, .06)' : 'var(--background-color)',
+          display: 'grid',
+          gridTemplateColumns: '34px minmax(0, 1fr)',
+          alignItems: 'center',
+          columnGap: '10px',
+          padding: '9px 11px',
+          boxShadow: active ? '0 0 0 3px rgba(64, 128, 255, .12)' : '0 1px 0 rgba(0, 0, 0, .03)',
+          cursor: pickable ? 'pointer' : 'default',
         }
-        .route-flow {
-          width: min(430px, 100%);
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 0;
+      }
+
+      function routeDotStyle(active) {
+        return {
+          width: '28px',
+          height: '28px',
+          borderRadius: '50%',
+          border: `1px solid ${active ? '#1677ff' : 'var(--border-color)'}`,
+          background: active ? '#1677ff' : 'var(--background-color)',
+          boxShadow: active ? 'inset 0 0 0 7px var(--background-color)' : 'none',
+          display: 'grid',
+          placeItems: 'center',
+          opacity: active ? 1 : .72,
+          color: active ? 'transparent' : 'inherit',
+          fontSize: '11px',
+          fontWeight: 700,
         }
-        .route-step {
-          min-height: 66px;
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          background: var(--background-color);
-          display: grid;
-          grid-template-columns: 34px minmax(0, 1fr);
-          align-items: center;
-          column-gap: 10px;
-          padding: 9px 11px;
-          box-shadow: 0 1px 0 rgba(0, 0, 0, .03);
+      }
+
+      function routeValueStyle(empty) {
+        return {
+          fontWeight: 700,
+          lineHeight: 1.35,
+          overflowWrap: 'anywhere',
+          color: empty ? '#1677ff' : 'inherit',
         }
-        .route-step.pickable {
-          cursor: pointer;
+      }
+
+      function routeConnectorStyle() {
+        return {
+          height: '28px',
+          width: '1px',
+          background: 'var(--border-color)',
+          position: 'relative',
+          margin: '-1px auto',
+          opacity: .78,
         }
-        .route-step.active {
-          border-color: #1677ff;
-          background: rgba(64, 128, 255, .06);
-          box-shadow: 0 0 0 3px rgba(64, 128, 255, .12);
+      }
+
+      function routeArrowStyle() {
+        return {
+          position: 'absolute',
+          left: '50%',
+          bottom: '-1px',
+          width: '6px',
+          height: '6px',
+          borderRight: '1px solid var(--border-color)',
+          borderBottom: '1px solid var(--border-color)',
+          transform: 'translateX(-50%) rotate(45deg)',
+          background: 'var(--background-color)',
         }
-        .route-step::before {
-          content: attr(data-index);
-          width: 28px;
-          height: 28px;
-          border-radius: 50%;
-          border: 1px solid var(--border-color);
-          background: var(--background-color);
-          grid-row: 1 / span 2;
-          display: grid;
-          place-items: center;
-          opacity: .72;
-          font-size: 11px;
-          font-weight: 700;
+      }
+
+      function nodeRowStyle(selected) {
+        return {
+          width: '100%',
+          border: `1px solid ${selected ? '#1677ff' : 'var(--border-color)'}`,
+          background: selected ? 'rgba(64, 128, 255, .10)' : 'transparent',
+          borderRadius: '8px',
+          padding: '8px 10px',
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) auto',
+          gap: '8px',
+          alignItems: 'center',
+          textAlign: 'left',
+          color: 'inherit',
+          cursor: 'pointer',
         }
-        .route-step.pickable::before {
-          border-color: rgba(22, 119, 255, .42);
-          background: rgba(64, 128, 255, .10);
-          color: #1677ff;
-          opacity: 1;
+      }
+
+      function ruleCardStyle(rule) {
+        return {
+          border: `1px solid ${rule.invalid ? '#d4380d' : 'var(--border-color)'}`,
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '8px',
+          opacity: rule.enabled === false ? .56 : 1,
+          background: rule.invalid ? 'rgba(212, 56, 13, .06)' : 'transparent',
         }
-        .route-step.active::before {
-          border-color: #1677ff;
-          background: #1677ff;
-          color: transparent;
-          box-shadow: inset 0 0 0 7px var(--background-color);
-        }
-        .route-label {
-          align-self: end;
-          opacity: .62;
-          font-size: 12px;
-        }
-        .route-value {
-          align-self: start;
-          min-width: 0;
-          overflow-wrap: anywhere;
-          font-weight: 700;
-          line-height: 1.35;
-        }
-        .route-step.empty .route-value {
-          color: #1677ff;
-        }
-        .route-connector {
-          height: 28px;
-          width: 1px;
-          background: var(--border-color);
-          position: relative;
-          margin: -1px auto;
-          opacity: .78;
-        }
-        .route-connector::after {
-          content: "";
-          position: absolute;
-          left: 50%;
-          bottom: -1px;
-          width: 6px;
-          height: 6px;
-          border-right: 1px solid var(--border-color);
-          border-bottom: 1px solid var(--border-color);
-          transform: translateX(-50%) rotate(45deg);
-          background: var(--background-color);
-        }
-        .node-row {
-          width: 100%;
-          border: 1px solid var(--border-color);
-          background: transparent;
-          border-radius: 8px;
-          padding: 8px 10px;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 8px;
-          align-items: center;
-          text-align: left;
-          color: inherit;
-          cursor: pointer;
-        }
-        .node-row:hover,
-        .node-row.selected {
-          border-color: #1677ff;
-          background: rgba(64, 128, 255, .10);
-        }
-        .node-name {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-weight: 600;
-        }
-        .node-meta {
-          opacity: .62;
-          font-size: 12px;
-        }
-        .rule-card {
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          padding: 12px;
-          margin-bottom: 8px;
-        }
-        .rule-card.disabled {
-          opacity: .56;
-        }
-        .rule-card.invalid {
-          border-color: #d4380d;
-          background: rgba(212, 56, 13, .06);
-        }
-        .rule-path {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          min-width: 0;
-          font-weight: 700;
-          line-height: 1.35;
-        }
-        .rule-path span:not(.arrow) {
-          min-width: 0;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .rule-path .arrow {
-          opacity: .5;
-          flex: 0 0 auto;
-        }
-      `
-        document.head.appendChild(style)
       }
 
       function chooseNode(id) {
@@ -637,6 +582,13 @@ async function showUI(profile) {
         query,
         pickMode,
         showAdvanced,
+        routeStepStyle,
+        routeDotStyle,
+        routeValueStyle,
+        routeConnectorStyle,
+        routeArrowStyle,
+        nodeRowStyle,
+        ruleCardStyle,
         chooseNode,
         addRule,
         editRule,
