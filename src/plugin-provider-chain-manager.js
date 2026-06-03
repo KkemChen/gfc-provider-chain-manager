@@ -297,7 +297,7 @@ function attachVirtualProviderToGroups(config, affectedProviderIds, providerId) 
 }
 
 function makeChainProxyName(targetName, viaName, usedNames) {
-  const base = `链式出口 | ${targetName} | 前置 ${viaName}`
+  const base = `🔗 ${compactNodeName(targetName)} via ${compactNodeName(viaName)}`
   if (!usedNames.has(base)) return base
 
   let index = 2
@@ -306,7 +306,69 @@ function makeChainProxyName(targetName, viaName, usedNames) {
 }
 
 function isVirtualChainProxy(proxy) {
-  return typeof proxy?.name === 'string' && proxy.name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `)
+  return typeof proxy?.name === 'string'
+    && (proxy.name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `) || proxy.name.startsWith('🔗 '))
+}
+
+function compactNodeName(name) {
+  const value = String(name || '').trim()
+  if (!value) return ''
+
+  const xavierTrojan = value.match(/^trojan-outlet-(\d+)-(.+?)-trojan$/i)
+  if (xavierTrojan) return `${xavierTrojan[2]} Trojan:${xavierTrojan[1]}`
+
+  const xavierHy2 = value.match(/^kkem-(.+)$/i)
+  if (xavierHy2) return `${xavierHy2[1]} HY2`
+
+  const airportNode = value.match(/^(.+?)←([A-Z]\d+)·(?:[\d.]+倍·)?([^#]+)(?:#(.+))?$/)
+  if (airportNode) {
+    return [
+      compactRegionName(airportNode[1]),
+      airportNode[2],
+      compactProtocolName(airportNode[3]),
+    ].filter(Boolean).join(' ')
+  }
+
+  const webshare = value.match(/^Webshare\s+(.+)$/i)
+  if (webshare) return `Webshare ${webshare[1].replace(/\s+/g, '-')}`
+
+  return value
+    .replace(/^链式出口\s*\|\s*/u, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 42)
+}
+
+function compactRegionName(name) {
+  const regions = [
+    ['新加坡', 'SG'],
+    ['美国', 'US'],
+    ['香港', 'HK'],
+    ['日本', 'JP'],
+    ['台湾', 'TW'],
+    ['澳洲', 'AU'],
+    ['澳大利亚', 'AU'],
+    ['印度', 'IN'],
+    ['英国', 'UK'],
+    ['俄罗斯', 'RU'],
+    ['马来西亚', 'MY'],
+  ]
+
+  let result = String(name || '')
+  for (const [from, to] of regions) {
+    result = result.replace(from, to)
+  }
+  return result.replace(/WARP/i, 'WARP')
+}
+
+function compactProtocolName(protocol) {
+  const value = String(protocol || '').trim()
+  const normalized = value.toLowerCase()
+  if (normalized === 'hysteria2' || normalized === 'hy2') return 'HY2'
+  if (normalized === 'anytls') return 'AnyTLS'
+  if (normalized === 'vision') return 'Vision'
+  if (normalized === 'trojan') return 'Trojan'
+  if (normalized === 'socks5') return 'Socks5'
+  return value
 }
 
 function cleanupVirtualProviderReferences(config) {
