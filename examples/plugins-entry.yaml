@@ -1,0 +1,27 @@
+- id: plugin-provider-chain-manager
+  name: Provider 链式代理管理
+  version: v0.1.0
+  description: 将 proxy-provider 订阅节点内联为本地 proxies，并应用 dialer-proxy，避免策略组继续使用未链式的 provider 原始节点。
+  tags:
+    - 实用工具
+    - 功能扩展
+  type: Http
+  url: https://raw.githubusercontent.com/KkemChen/gfc-provider-chain-manager/main/src/plugin-provider-chain-manager.js
+  path: data/plugins/plugin-provider-chain-manager.js
+  triggers:
+    - on::manual
+    - on::generate
+  hasUI: true
+  menus: {}
+  context:
+    profiles:
+      Provider 链式代理管理: showUI
+    subscriptions: {}
+    rulesets: {}
+    plugins: {}
+    scheduledtasks: {}
+  status: 0
+  configuration: []
+  disabled: false
+  install: true
+  installed: false
