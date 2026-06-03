@@ -301,72 +301,30 @@ async function showUI(profile) {
 
   const component = {
     template: `
-      <div class="pb-8 pr-8" style="display: grid; grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.25fr); gap: 14px;">
+      <div class="pb-8 pr-8" style="display: grid; grid-template-columns: minmax(390px, .95fr) minmax(500px, 1.25fr); gap: 14px;">
         <section style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
-            <div class="flex justify-between items-center gap-10 mb-12">
+          <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
+            <div class="flex justify-between items-center gap-10">
               <div>
-                <div class="font-bold text-18">新建链路</div>
-                <div class="text-12 mt-4" style="opacity: .68">先选最终出口，再选前置节点。</div>
+                <div class="font-bold text-18">选择节点</div>
+                <div class="text-12 mt-4" style="opacity: .62">先出口，后前置。</div>
               </div>
               <div class="text-12 px-8 py-4 rounded-6" style="background: rgba(64, 128, 255, .12); color: #1677ff;">
                 已启用 {{ enabledRuleCount }}
               </div>
             </div>
 
-            <div class="mb-10" style="border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,.48), rgba(128,128,128,.04)); padding: 12px;">
-              <div class="text-12 mb-10" style="opacity: .68">运行路径</div>
-              <div style="width: min(430px, 100%); margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 0;">
-                <div :style="routeStepStyle(false, false)">
-                  <div :style="routeDotStyle(false, '1')">1</div>
-                  <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">起点</div>
-                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">本机</div>
-                  </div>
-                </div>
-                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
-                <div :style="routeStepStyle(pickMode === 'via', true)" @click="pickMode = 'via'">
-                  <div :style="routeDotStyle(pickMode === 'via', '2')">{{ pickMode === 'via' ? '' : '2' }}</div>
-                  <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">前置节点</div>
-                    <div :style="routeValueStyle(!selectedViaName)">{{ selectedViaName || '点击选择' }}</div>
-                  </div>
-                </div>
-                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
-                <div :style="routeStepStyle(pickMode === 'target', true)" @click="pickMode = 'target'">
-                  <div :style="routeDotStyle(pickMode === 'target', '3')">{{ pickMode === 'target' ? '' : '3' }}</div>
-                  <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">最终出口</div>
-                    <div :style="routeValueStyle(!selectedTargetName)">{{ selectedTargetName || '点击选择' }}</div>
-                  </div>
-                </div>
-                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
-                <div :style="routeStepStyle(false, false)">
-                  <div :style="routeDotStyle(false, '4')">4</div>
-                  <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">目标</div>
-                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">网站</div>
-                  </div>
-                </div>
-              </div>
-              <div class="text-12 mt-8" style="opacity: .64">生成结果：新增一个链式出口节点，原节点保持不变。</div>
-            </div>
-
-            <div class="flex gap-8 mb-10">
+            <div class="flex gap-8">
               <Button :type="pickMode === 'target' ? 'primary' : 'default'" @click="pickMode = 'target'">选择出口</Button>
               <Button :type="pickMode === 'via' ? 'primary' : 'default'" @click="pickMode = 'via'">选择前置</Button>
-              <Button type="primary" style="margin-left: auto;" @click="addRule">保存链路</Button>
+              <div class="text-12" style="margin-left: auto; align-self: center; opacity: .64;">当前：{{ pickMode === 'target' ? '出口' : '前置' }}</div>
             </div>
 
             <input v-model="query" :placeholder="pickMode === 'target' ? '搜索出口节点，例如 trojan / hy2 / 新加坡' : '搜索前置节点，例如 anytls / x-air / 新加坡'" style="width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px;" />
           </div>
 
-          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
-            <div class="flex justify-between items-center mb-8">
-              <div class="font-bold text-15">节点选择</div>
-              <div class="text-12" style="opacity: .64">当前：{{ pickMode === 'target' ? '出口' : '前置' }}</div>
-            </div>
-            <div style="max-height: 430px; overflow: auto; padding-right: 4px;">
+          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
+            <div style="max-height: 650px; overflow: auto; padding-right: 4px;">
               <div v-for="section in filteredSections" :key="section.name" class="mb-10">
                 <div class="text-12 mb-6" style="opacity: .58">{{ section.name }}</div>
                 <div style="display: grid; gap: 6px;">
@@ -384,20 +342,60 @@ async function showUI(profile) {
         <section style="display: flex; flex-direction: column; gap: 12px;">
           <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
             <div class="flex justify-between items-center mb-10">
-              <div>
-                <div class="font-bold text-18">已配置链路</div>
-                <div class="text-12 mt-4" style="opacity: .68">生成后请在策略组里选择名称更明确的“链式出口”新节点。</div>
+              <div class="font-bold text-18">链路预览</div>
+              <Button type="primary" @click="addRule">保存链路</Button>
+            </div>
+            <div style="border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,.48), rgba(128,128,128,.04)); padding: 12px;">
+              <div style="width: min(430px, 100%); margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 0;">
+                <div :style="routeStepStyle(false, false)">
+                  <div :style="routeDotStyle(false)">1</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">起点</div>
+                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">本机</div>
+                  </div>
+                </div>
+                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
+                <div :style="routeStepStyle(pickMode === 'via', true)" @click="pickMode = 'via'">
+                  <div :style="routeDotStyle(pickMode === 'via')">{{ pickMode === 'via' ? '' : '2' }}</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">前置节点</div>
+                    <div :style="routeValueStyle(!selectedViaName)">{{ selectedViaName || '点击选择' }}</div>
+                  </div>
+                </div>
+                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
+                <div :style="routeStepStyle(pickMode === 'target', true)" @click="pickMode = 'target'">
+                  <div :style="routeDotStyle(pickMode === 'target')">{{ pickMode === 'target' ? '' : '3' }}</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">最终出口</div>
+                    <div :style="routeValueStyle(!selectedTargetName)">{{ selectedTargetName || '点击选择' }}</div>
+                  </div>
+                </div>
+                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
+                <div :style="routeStepStyle(false, false)">
+                  <div :style="routeDotStyle(false)">4</div>
+                  <div style="min-width: 0;">
+                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">目标</div>
+                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">网站</div>
+                  </div>
+                </div>
               </div>
+            </div>
+          </div>
+
+          <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
+            <div class="flex justify-between items-center mb-10">
+              <div class="font-bold text-18">已配置链路</div>
+              <div class="text-12" style="opacity: .62;">选择“链式出口”新节点使用</div>
             </div>
 
             <div v-if="ruleViews.length === 0" class="rounded-8 p-16 text-14" style="border: 1px dashed var(--border-color); opacity: .72">
-              还没有链路。左侧选择一个出口和一个前置后点“保存链路”。
+              选择出口和前置后保存。
             </div>
 
+            <div v-if="ruleViews.length > 0" style="max-height: 330px; overflow: auto; padding-right: 4px;">
             <div v-for="(rule, index) in ruleViews" :key="rule.targetId" :style="ruleCardStyle(rule)">
               <div class="flex justify-between gap-10">
                 <div style="min-width: 0; flex: 1;">
-                  <div class="text-12 mb-5" style="opacity: .62">本机 -> 前置 -> 出口 -> 网站</div>
                   <div style="display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 700; line-height: 1.35;">
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ rule.viaName }}</span>
                     <span style="opacity: .5; flex: 0 0 auto;">-></span>
@@ -416,16 +414,17 @@ async function showUI(profile) {
                 </div>
               </div>
             </div>
+            </div>
           </div>
 
-          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
+          <div class="p-10 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
             <div class="flex justify-between items-center" @click="showAdvanced = !showAdvanced" style="cursor: pointer;">
-              <div class="font-bold text-15">高级生成选项</div>
+              <div class="font-bold text-14">高级选项</div>
               <div class="text-12" style="opacity: .66">{{ showAdvanced ? '收起' : '展开' }}</div>
             </div>
-            <div v-if="showAdvanced" class="flex flex-col gap-8 text-13 mt-10">
+            <div v-if="showAdvanced" class="flex flex-col gap-6 text-13 mt-8">
               <label><input type="checkbox" v-model="options.inlineProviders" /> 展开订阅 provider 到策略组 proxies</label>
-              <label><input type="checkbox" v-model="options.removeInlinedProviders" /> 删除已展开的 proxy-providers，确保策略组能看到新增链式节点</label>
+              <label><input type="checkbox" v-model="options.removeInlinedProviders" /> 删除已展开的 proxy-providers</label>
             </div>
           </div>
         </section>
