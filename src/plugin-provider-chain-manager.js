@@ -16,15 +16,15 @@ const onGenerate = async (config, profile) => {
   const context = await collectContext(config, profile, subscribesStore)
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
-  await createVirtualSubscription(config, context, activeRules, options)
+  await createVirtualSubscription(config, context, activeRules, options, subscribesStore)
 
   return config
 }
 
-async function createVirtualSubscription(config, context, rules, options) {
+async function createVirtualSubscription(config, context, rules, options, subscribesStore) {
   const { chainProxies, affectedProviderIds } = buildChainProxies(config, context, rules)
 
-  await writeVirtualSubscribe(chainProxies)
+  await writeVirtualSubscribe(chainProxies, subscribesStore)
 
   if (chainProxies.length === 0) {
     removeVirtualProvider(config)
@@ -74,7 +74,7 @@ function buildChainProxies(config, context, rules) {
   return { chainProxies, affectedProviderIds }
 }
 
-async function writeVirtualSubscribe(chainProxies) {
+async function writeVirtualSubscribe(chainProxies, subscribesStore) {
   await Plugins.WriteFile(VIRTUAL_SUBSCRIBE_PATH, Plugins.YAML.stringify({ proxies: chainProxies }))
 
   const raw = await Plugins.ReadFile('data/subscribes.yaml').catch(() => '[]')
@@ -89,6 +89,19 @@ async function writeVirtualSubscribe(chainProxies) {
   }
 
   await Plugins.WriteFile('data/subscribes.yaml', Plugins.YAML.stringify(subscribes))
+  refreshVirtualSubscribeStore(subscribesStore, entry)
+}
+
+function refreshVirtualSubscribeStore(subscribesStore, entry) {
+  if (!subscribesStore || !Array.isArray(subscribesStore.subscribes)) return
+
+  const current = subscribesStore.subscribes.find((sub) => sub?.id === VIRTUAL_SUBSCRIBE_ID)
+  if (current) {
+    Object.assign(current, entry)
+    return
+  }
+
+  subscribesStore.subscribes.push(entry)
 }
 
 function makeVirtualSubscribeEntry(chainProxies) {
@@ -658,13 +671,13 @@ async function showUI(profile) {
       async onOk() {
         const activeRules = rules.value.filter((rule) => rule.enabled !== false)
         const { chainProxies } = buildChainProxies(config, context, activeRules)
-        await writeVirtualSubscribe(chainProxies)
+        await writeVirtualSubscribe(chainProxies, subscribesStore)
         await saveState(profile.id, {
           version: 1,
           options: options.value,
           rules: rules.value,
         })
-        Plugins.message.success('common.success')
+        Plugins.message.success('已保存，并刷新“链式出口”本地订阅')
       },
       afterClose() {
         modal.destroy()
