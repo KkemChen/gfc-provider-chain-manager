@@ -25,9 +25,9 @@ The existing chain-manager pattern mutates or copies provider nodes into `proxie
 
 - loading provider nodes from subscription files;
 - creating new chained nodes by stable GUI proxy IDs, without mutating the original nodes;
-- writing generated nodes to a local virtual subscription file;
-- adding a `链式出口` file-based `proxy-provider`;
-- attaching that virtual provider to related strategy groups.
+- automatically creating and maintaining a real local subscription named `链式出口`;
+- writing generated nodes to `data/subscribes/ID_provider_chain_virtual.yaml`;
+- attaching that subscription to related strategy groups.
 - showing rule previews and invalid-rule warnings in the UI.
 
 ## Official Plugin Shape
@@ -91,7 +91,8 @@ The manual UI is designed as a chain editor instead of a raw mapping table:
 - left side: pick the final outlet node and the front node from a searchable node list;
 - top path preview: `local -> front node -> outlet node -> website`;
 - right side: enabled chain rules as readable cards;
-- generated nodes are named as `链式出口 | <outlet> | 前置 <front>`;
+- generated nodes are grouped under the real local subscription `链式出口`;
+- generated node names are `链式出口 | <outlet> | 前置 <front>`;
 - advanced generation behavior is collapsed by default.
 
 The storage format is:
@@ -130,18 +131,27 @@ the generated config becomes:
 
 ```yaml
 proxy-providers:
-  链式出口:
+  ID_provider_chain_virtual:
     type: file
-    path: ../third/provider-chain-manager/<profile-id>-virtual.yaml
+    path: ../subscribes/ID_provider_chain_virtual.yaml
 
 proxy-groups:
   - name: openai
     use:
       - ID_8l1u8mi5
-      - 链式出口
+      - ID_provider_chain_virtual
 ```
 
-The virtual provider file contains:
+The plugin also maintains the real GUI subscription entry in `data/subscribes.yaml`:
+
+```yaml
+- id: ID_provider_chain_virtual
+  name: 链式出口
+  type: File
+  path: data/subscribes/ID_provider_chain_virtual.yaml
+```
+
+The local subscription file contains:
 
 ```yaml
 proxies:

@@ -1,22 +1,26 @@
 # Verification
 
-After generating and applying the config, check the generated config and virtual provider file:
+After saving plugin rules or generating/applying the config, check the real local subscription:
 
 ```powershell
-rg -n "链式出口|provider-chain-manager" "C:\Program Files\GUI.for.Clash\data\mihomo\config.yaml"
-Get-Content "C:\Program Files\GUI.for.Clash\data\third\provider-chain-manager\<profile-id>-virtual.yaml"
+rg -n "ID_provider_chain_virtual|链式出口" "C:\Program Files\GUI.for.Clash\data\subscribes.yaml"
+Get-Content "C:\Program Files\GUI.for.Clash\data\subscribes\ID_provider_chain_virtual.yaml"
 ```
 
 Expected:
 
 ```text
-proxy-providers:
-  链式出口:
-    type: file
-    path: ../third/provider-chain-manager/<profile-id>-virtual.yaml
+- id: ID_provider_chain_virtual
+  name: 链式出口
+  type: File
+  path: data/subscribes/ID_provider_chain_virtual.yaml
 ```
 
-Then check the mihomo API:
+Then check the generated config and mihomo API:
+
+```powershell
+rg -n "ID_provider_chain_virtual|链式出口" "C:\Program Files\GUI.for.Clash\data\mihomo\config.yaml"
+```
 
 ```powershell
 $secret = '<external-controller secret>'

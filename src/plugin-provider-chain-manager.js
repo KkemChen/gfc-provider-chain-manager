@@ -1,6 +1,8 @@
 const PATH = 'data/third/provider-chain-manager'
 const LEGACY_PATH = 'data/third/proxy-chain-manager'
+const VIRTUAL_SUBSCRIBE_ID = 'ID_provider_chain_virtual'
 const VIRTUAL_PROVIDER_NAME = '链式出口'
+const VIRTUAL_SUBSCRIBE_PATH = `data/subscribes/${VIRTUAL_SUBSCRIBE_ID}.yaml`
 
 const DEFAULT_OPTIONS = {
   attachVirtualProvider: true,
@@ -14,12 +16,33 @@ const onGenerate = async (config, profile) => {
   const context = await collectContext(config, profile, subscribesStore)
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
-  await createVirtualProvider(config, profile, context, activeRules, options)
+  await createVirtualSubscription(config, context, activeRules, options)
 
   return config
 }
 
-async function createVirtualProvider(config, profile, context, rules, options) {
+async function createVirtualSubscription(config, context, rules, options) {
+  const { chainProxies, affectedProviderIds } = buildChainProxies(config, context, rules)
+
+  await writeVirtualSubscribe(chainProxies)
+
+  if (chainProxies.length === 0) {
+    removeVirtualProvider(config)
+    return
+  }
+
+  config['proxy-providers'] = config['proxy-providers'] || {}
+  config['proxy-providers'][VIRTUAL_SUBSCRIBE_ID] = {
+    type: 'file',
+    path: `../subscribes/${VIRTUAL_SUBSCRIBE_ID}.yaml`,
+  }
+
+  if (options.attachVirtualProvider) {
+    attachVirtualProviderToGroups(config, affectedProviderIds)
+  }
+}
+
+function buildChainProxies(config, context, rules) {
   const localProxies = Array.isArray(config.proxies) ? Plugins.deepClone(config.proxies) : []
   const sourceProxies = [...localProxies, ...context.providerProxies]
   const usedNames = new Set(sourceProxies.map((proxy) => proxy?.name).filter(Boolean))
@@ -48,22 +71,56 @@ async function createVirtualProvider(config, profile, context, rules, options) {
     if (sourceProviderId) affectedProviderIds.add(sourceProviderId)
   }
 
-  if (chainProxies.length === 0) {
-    removeVirtualProvider(config)
-    return
+  return { chainProxies, affectedProviderIds }
+}
+
+async function writeVirtualSubscribe(chainProxies) {
+  await Plugins.WriteFile(VIRTUAL_SUBSCRIBE_PATH, Plugins.YAML.stringify({ proxies: chainProxies }))
+
+  const raw = await Plugins.ReadFile('data/subscribes.yaml').catch(() => '[]')
+  const subscribes = Plugins.YAML.parse(raw || '[]') || []
+  const entry = makeVirtualSubscribeEntry(chainProxies)
+  const index = subscribes.findIndex((sub) => sub?.id === VIRTUAL_SUBSCRIBE_ID)
+
+  if (index >= 0) {
+    subscribes[index] = { ...subscribes[index], ...entry }
+  } else {
+    subscribes.push(entry)
   }
 
-  const virtualPath = `${PATH}/${profile.id}-virtual.yaml`
-  await Plugins.WriteFile(virtualPath, Plugins.YAML.stringify({ proxies: chainProxies }))
+  await Plugins.WriteFile('data/subscribes.yaml', Plugins.YAML.stringify(subscribes))
+}
 
-  config['proxy-providers'] = config['proxy-providers'] || {}
-  config['proxy-providers'][VIRTUAL_PROVIDER_NAME] = {
-    type: 'file',
-    path: `../third/provider-chain-manager/${profile.id}-virtual.yaml`,
-  }
-
-  if (options.attachVirtualProvider) {
-    attachVirtualProviderToGroups(config, affectedProviderIds)
+function makeVirtualSubscribeEntry(chainProxies) {
+  return {
+    id: VIRTUAL_SUBSCRIBE_ID,
+    name: VIRTUAL_PROVIDER_NAME,
+    useInternal: false,
+    upload: 0,
+    download: 0,
+    total: 0,
+    expire: null,
+    updateTime: Date.now(),
+    type: 'File',
+    url: '',
+    website: '',
+    path: VIRTUAL_SUBSCRIBE_PATH,
+    include: '',
+    exclude: '',
+    includeProtocol: '',
+    excludeProtocol: '',
+    proxyPrefix: '',
+    disabled: false,
+    inSecure: false,
+    requestMethod: 'GET',
+    requestTimeout: 15,
+    header: { request: {}, response: {} },
+    script: `const onSubscribe = async (proxies, subscription) => {\n  return { proxies, subscription }\n}`,
+    proxies: chainProxies.map((proxy, index) => ({
+      id: `ID_chain_${index + 1}`,
+      name: proxy.name,
+      type: proxy.type,
+    })),
   }
 }
 
@@ -128,7 +185,7 @@ function attachVirtualProviderToGroups(config, affectedProviderIds) {
     if (!Array.isArray(group.use)) group.use = []
     const usesAffectedProvider = group.use.some((providerId) => affectedProviderIds.has(providerId))
     if (usesAffectedProvider) {
-      group.use = uniqueNames([...group.use, VIRTUAL_PROVIDER_NAME])
+      group.use = uniqueNames([...group.use, VIRTUAL_SUBSCRIBE_ID])
       attached = true
     }
   }
@@ -137,7 +194,7 @@ function attachVirtualProviderToGroups(config, affectedProviderIds) {
   for (const group of groups) {
     if (!['select', 'url-test', 'fallback', 'load-balance'].includes(group.type)) continue
     if (!Array.isArray(group.use)) group.use = []
-    group.use = uniqueNames([...group.use, VIRTUAL_PROVIDER_NAME])
+    group.use = uniqueNames([...group.use, VIRTUAL_SUBSCRIBE_ID])
   }
 }
 
@@ -152,7 +209,7 @@ function makeChainProxyName(targetName, viaName, usedNames) {
 
 function removeVirtualProvider(config) {
   if (!config['proxy-providers']) return
-  delete config['proxy-providers'][VIRTUAL_PROVIDER_NAME]
+  delete config['proxy-providers'][VIRTUAL_SUBSCRIBE_ID]
 }
 
 function uniqueNames(names) {
@@ -411,7 +468,7 @@ async function showUI(profile) {
             <div v-if="showAdvanced" style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
               <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; opacity: 0.85;">
                 <input type="checkbox" v-model="options.attachVirtualProvider" style="cursor: pointer; margin: 0;" />
-                <span>自动把“链式出口”虚拟订阅挂到相关策略组</span>
+                <span>自动把“链式出口”本地订阅挂到相关策略组</span>
               </label>
             </div>
           </div>
@@ -599,6 +656,9 @@ async function showUI(profile) {
       width: '92',
       height: '92',
       async onOk() {
+        const activeRules = rules.value.filter((rule) => rule.enabled !== false)
+        const { chainProxies } = buildChainProxies(config, context, activeRules)
+        await writeVirtualSubscribe(chainProxies)
         await saveState(profile.id, {
           version: 1,
           options: options.value,
