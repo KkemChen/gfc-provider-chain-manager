@@ -85,12 +85,12 @@ C:\Program Files\GUI.for.Clash\data\plugins.yaml
 
 ## UI Model
 
-The manual UI has four parts:
+The manual UI is designed as a chain editor instead of a raw mapping table:
 
-- generation behavior: provider inline/remove switches;
-- add chain rule: choose a final outlet node and a front node;
-- current rules: enable, edit, delete, preview each rule;
-- available nodes: searchable node inventory grouped by strategy groups and subscriptions.
+- left side: pick the final outlet node and the front node from a searchable node list;
+- top path preview: `local -> front node -> outlet node -> website`;
+- right side: enabled chain rules as readable cards;
+- advanced generation behavior is collapsed by default.
 
 The storage format is:
 
