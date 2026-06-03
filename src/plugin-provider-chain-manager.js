@@ -100,13 +100,6 @@ async function collectContext(config, profile, subscribesStore) {
     sections.push({ id: providerId, name: sub.name, type: 'provider', nodes: metaNodes })
   }
 
-  sections.unshift({
-    id: 'groups',
-    name: '策略组',
-    type: 'group',
-    nodes: (profile.proxyGroupsConfig || []).map((group) => ({ id: group.id, name: group.name, type: 'group' })),
-  })
-
   return { idToName, nameToId, providerProxies, providerNodes, inlinedProviderIds, chainNameByTargetId, chainNameByTargetName, sections }
 }
 
@@ -301,7 +294,7 @@ async function showUI(profile) {
 
   const component = {
     template: `
-      <div class="pb-8 pr-8" style="display: grid; grid-template-columns: minmax(390px, .95fr) minmax(500px, 1.25fr); gap: 14px;">
+      <div class="pb-8 pr-8" style="display: grid; grid-template-columns: minmax(320px, .95fr) minmax(0, 1.25fr); gap: 14px; overflow: hidden;">
         <section style="display: flex; flex-direction: column; gap: 12px;">
           <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
             <div class="flex justify-between items-center gap-10">
@@ -324,7 +317,7 @@ async function showUI(profile) {
           </div>
 
           <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
-            <div style="max-height: 650px; overflow: auto; padding-right: 4px;">
+            <div style="max-height: 610px; overflow: auto; padding-right: 4px;">
               <div v-for="section in filteredSections" :key="section.name" class="mb-10">
                 <div class="text-12 mb-6" style="opacity: .58">{{ section.name }}</div>
                 <div style="display: grid; gap: 6px;">
@@ -340,13 +333,13 @@ async function showUI(profile) {
         </section>
 
         <section style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
+          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
             <div class="flex justify-between items-center mb-10">
-              <div class="font-bold text-18">链路预览</div>
+              <div class="font-bold text-16">链路预览</div>
               <Button type="primary" @click="addRule">保存链路</Button>
             </div>
-            <div style="border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,.48), rgba(128,128,128,.04)); padding: 12px;">
-              <div style="width: min(430px, 100%); margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 0;">
+            <div style="border: 1px solid var(--border-color); border-radius: 8px; background: rgba(255,255,255,.035); padding: 10px 12px; overflow: hidden;">
+              <div style="width: min(470px, 100%); margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 0;">
                 <div :style="routeStepStyle(false, false)">
                   <div :style="routeDotStyle(false)">1</div>
                   <div style="min-width: 0;">
@@ -382,14 +375,14 @@ async function showUI(profile) {
             </div>
           </div>
 
-          <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
+          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
             <div class="flex justify-between items-center mb-10">
-              <div class="font-bold text-18">已配置链路</div>
-              <div class="text-12" style="opacity: .62;">选择“链式出口”新节点使用</div>
+              <div class="font-bold text-16">已配置链路</div>
+              <div class="text-12" style="opacity: .62;">{{ ruleViews.length }} 条</div>
             </div>
 
             <div v-if="ruleViews.length === 0" class="rounded-8 p-16 text-14" style="border: 1px dashed var(--border-color); opacity: .72">
-              选择出口和前置后保存。
+              选择出口和前置后保存
             </div>
 
             <div v-if="ruleViews.length > 0" style="max-height: 330px; overflow: auto; padding-right: 4px;">
@@ -401,8 +394,7 @@ async function showUI(profile) {
                     <span style="opacity: .5; flex: 0 0 auto;">-></span>
                     <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ rule.targetName }}</span>
                   </div>
-                  <div class="text-12 mt-6" style="opacity: .66">新节点：{{ rule.chainName }}</div>
-                  <div class="text-12 mt-4" style="opacity: .58">基于原节点：{{ rule.targetName }}；dialer-proxy: {{ rule.viaName }}</div>
+                  <div class="text-12 mt-6" style="opacity: .66; overflow-wrap: anywhere;">{{ rule.chainName }}</div>
                   <div v-if="rule.invalid" class="text-12 mt-6" style="color: #d4380d">规则无效：节点不存在或出口与前置相同。</div>
                 </div>
                 <div class="flex flex-col gap-6 items-end">
@@ -432,33 +424,33 @@ async function showUI(profile) {
     setup() {
       function routeStepStyle(active, pickable) {
         return {
-          minHeight: '66px',
+          minHeight: '52px',
           border: `1px solid ${active ? '#1677ff' : 'var(--border-color)'}`,
-          borderRadius: '8px',
-          background: active ? 'rgba(64, 128, 255, .06)' : 'var(--background-color)',
+          borderRadius: '7px',
+          background: active ? 'rgba(22, 119, 255, .12)' : 'rgba(255, 255, 255, .025)',
           display: 'grid',
-          gridTemplateColumns: '34px minmax(0, 1fr)',
+          gridTemplateColumns: '30px minmax(0, 1fr)',
           alignItems: 'center',
-          columnGap: '10px',
-          padding: '9px 11px',
-          boxShadow: active ? '0 0 0 3px rgba(64, 128, 255, .12)' : '0 1px 0 rgba(0, 0, 0, .03)',
+          columnGap: '8px',
+          padding: '7px 10px',
+          boxShadow: active ? '0 0 0 2px rgba(22, 119, 255, .14)' : 'none',
           cursor: pickable ? 'pointer' : 'default',
         }
       }
 
       function routeDotStyle(active) {
         return {
-          width: '28px',
-          height: '28px',
+          width: '22px',
+          height: '22px',
           borderRadius: '50%',
           border: `1px solid ${active ? '#1677ff' : 'var(--border-color)'}`,
           background: active ? '#1677ff' : 'var(--background-color)',
-          boxShadow: active ? 'inset 0 0 0 7px var(--background-color)' : 'none',
+          boxShadow: active ? 'inset 0 0 0 6px var(--background-color)' : 'none',
           display: 'grid',
           placeItems: 'center',
           opacity: active ? 1 : .72,
           color: active ? 'transparent' : 'inherit',
-          fontSize: '11px',
+          fontSize: '10px',
           fontWeight: 700,
         }
       }
@@ -474,7 +466,7 @@ async function showUI(profile) {
 
       function routeConnectorStyle() {
         return {
-          height: '28px',
+          height: '16px',
           width: '1px',
           background: 'var(--border-color)',
           position: 'relative',
@@ -488,8 +480,8 @@ async function showUI(profile) {
           position: 'absolute',
           left: '50%',
           bottom: '-1px',
-          width: '6px',
-          height: '6px',
+          width: '5px',
+          height: '5px',
           borderRight: '1px solid var(--border-color)',
           borderBottom: '1px solid var(--border-color)',
           transform: 'translateX(-50%) rotate(45deg)',
@@ -502,8 +494,8 @@ async function showUI(profile) {
           width: '100%',
           border: `1px solid ${selected ? '#1677ff' : 'var(--border-color)'}`,
           background: selected ? 'rgba(64, 128, 255, .10)' : 'transparent',
-          borderRadius: '8px',
-          padding: '8px 10px',
+          borderRadius: '7px',
+          padding: '7px 9px',
           display: 'grid',
           gridTemplateColumns: 'minmax(0, 1fr) auto',
           gap: '8px',
@@ -517,9 +509,9 @@ async function showUI(profile) {
       function ruleCardStyle(rule) {
         return {
           border: `1px solid ${rule.invalid ? '#d4380d' : 'var(--border-color)'}`,
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '8px',
+          borderRadius: '7px',
+          padding: '10px',
+          marginBottom: '7px',
           opacity: rule.enabled === false ? .56 : 1,
           background: rule.invalid ? 'rgba(212, 56, 13, .06)' : 'transparent',
         }
