@@ -1,17 +1,17 @@
 # GFC Provider Chain Manager
 
-GUI.for.Clash / GUI.for.Cores plugin for applying `dialer-proxy` to nodes imported from `proxy-providers`.
+GUI.for.Clash / GUI.for.Cores plugin for creating friendly chained proxy nodes from nodes imported through `proxy-providers`.
 
 This is a redesigned provider-aware chain manager, not a copy of the existing card-click chain plugin. It treats chain configuration as explicit rules:
 
 ```text
-target node -> front node
+outlet node -> front node
 ```
 
 which generates:
 
 ```yaml
-target-node:
+链式出口 | target-node | 前置 front-node:
   dialer-proxy: front-node
 ```
 
@@ -24,9 +24,9 @@ local -> front-node -> target-node -> website
 The existing chain-manager pattern copies provider nodes into `proxies`, but strategy groups that still use `use: [provider-id]` continue selecting provider originals. This plugin fixes that by:
 
 - loading provider nodes from subscription files;
-- applying saved `dialer-proxy` mappings by stable GUI proxy IDs;
+- creating new chained nodes by stable GUI proxy IDs, without mutating the original nodes;
 - inlining provider nodes into strategy-group `proxies`;
-- removing inlined providers from `proxy-providers` so mihomo uses the chained local nodes.
+- removing inlined providers from `proxy-providers` so mihomo can select the generated local nodes.
 - showing rule previews and invalid-rule warnings in the UI.
 
 ## Official Plugin Shape
@@ -90,6 +90,7 @@ The manual UI is designed as a chain editor instead of a raw mapping table:
 - left side: pick the final outlet node and the front node from a searchable node list;
 - top path preview: `local -> front node -> outlet node -> website`;
 - right side: enabled chain rules as readable cards;
+- generated nodes are named as `链式出口 | <outlet> | 前置 <front>`;
 - advanced generation behavior is collapsed by default.
 
 The storage format is:
@@ -99,8 +100,7 @@ The storage format is:
   "version": 1,
   "options": {
     "inlineProviders": true,
-    "removeInlinedProviders": true,
-    "keepUnmappedDialerProxyField": false
+    "removeInlinedProviders": true
   },
   "rules": [
     {
@@ -131,12 +131,14 @@ the generated config becomes:
 ```yaml
 proxies:
   - name: node-a
+  - name: 链式出口 | node-a | 前置 front-proxy
     dialer-proxy: front-proxy
 
 proxy-groups:
   - name: openai
     proxies:
       - node-a
+      - 链式出口 | node-a | 前置 front-proxy
 ```
 
 The provider is removed if it was fully inlined.
@@ -152,7 +154,7 @@ Trojan -> AnyTLS
 This generates:
 
 ```yaml
-trojan-node:
+链式出口 | trojan-node | 前置 anytls-node:
   dialer-proxy: anytls-node
 ```
 

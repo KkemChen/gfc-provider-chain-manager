@@ -4,7 +4,6 @@ const LEGACY_PATH = 'data/third/proxy-chain-manager'
 const DEFAULT_OPTIONS = {
   inlineProviders: true,
   removeInlinedProviders: true,
-  keepUnmappedDialerProxyField: false,
 }
 
 /* Trigger: on::generate */
@@ -15,7 +14,7 @@ const onGenerate = async (config, profile) => {
   const context = await collectContext(config, profile, subscribesStore)
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
-  applyRulesToProxies(config, context, activeRules, options)
+  applyRulesToProxies(config, context, activeRules)
 
   if (options.inlineProviders) {
     inlineProviderGroups(config, context)
@@ -28,24 +27,35 @@ const onGenerate = async (config, profile) => {
   return config
 }
 
-function applyRulesToProxies(config, context, rules, options) {
+function applyRulesToProxies(config, context, rules) {
   const localProxies = Array.isArray(config.proxies) ? Plugins.deepClone(config.proxies) : []
+  const sourceProxies = [...localProxies, ...context.providerProxies]
   const proxyMap = new Map()
+  const usedNames = new Set()
 
-  for (const proxy of [...localProxies, ...context.providerProxies]) {
+  for (const proxy of sourceProxies) {
     if (!proxy?.name) continue
-
-    const targetId = context.nameToId[proxy.name]
-    const rule = rules.find((item) => item.targetId === targetId)
-    const viaName = rule ? context.idToName[rule.viaId] : undefined
-
-    if (viaName) {
-      proxy['dialer-proxy'] = viaName
-    } else if (!options.keepUnmappedDialerProxyField) {
-      delete proxy['dialer-proxy']
-    }
-
     proxyMap.set(proxy.name, proxy)
+    usedNames.add(proxy.name)
+  }
+
+  for (const rule of rules) {
+    const targetName = context.idToName[rule.targetId]
+    const viaName = context.idToName[rule.viaId]
+    if (!targetName || !viaName || targetName === viaName) continue
+
+    const sourceProxy = sourceProxies.find((proxy) => proxy?.name === targetName)
+    if (!sourceProxy) continue
+
+    const chainProxy = Plugins.deepClone(sourceProxy)
+    const chainName = makeChainProxyName(targetName, viaName, usedNames)
+    chainProxy.name = chainName
+    chainProxy['dialer-proxy'] = viaName
+
+    proxyMap.set(chainName, chainProxy)
+    usedNames.add(chainName)
+    context.chainNameByTargetId[rule.targetId] = chainName
+    context.chainNameByTargetName[targetName] = chainName
   }
 
   config.proxies = [...proxyMap.values()]
@@ -57,6 +67,8 @@ async function collectContext(config, profile, subscribesStore) {
   const providerProxies = []
   const providerNodes = {}
   const inlinedProviderIds = new Set()
+  const chainNameByTargetId = {}
+  const chainNameByTargetName = {}
   const sections = []
 
   addKnown(idToName, nameToId, 'DIRECT', 'DIRECT')
@@ -95,7 +107,7 @@ async function collectContext(config, profile, subscribesStore) {
     nodes: (profile.proxyGroupsConfig || []).map((group) => ({ id: group.id, name: group.name, type: 'group' })),
   })
 
-  return { idToName, nameToId, providerProxies, providerNodes, inlinedProviderIds, sections }
+  return { idToName, nameToId, providerProxies, providerNodes, inlinedProviderIds, chainNameByTargetId, chainNameByTargetName, sections }
 }
 
 function addKnown(idToName, nameToId, id, name) {
@@ -121,13 +133,46 @@ function inlineProviderGroups(config, context) {
         continue
       }
 
-      expanded.push(...nodes.map((proxy) => proxy.name).filter(Boolean))
+      for (const proxy of nodes) {
+        if (!proxy?.name) continue
+        expanded.push(proxy.name)
+
+        const chainName = context.chainNameByTargetName[proxy.name]
+        if (chainName) expanded.push(chainName)
+      }
       context.inlinedProviderIds.add(providerId)
     }
 
     group.proxies = uniqueNames([...explicit, ...expanded])
     group.use = remainingUse
   }
+
+  appendChainedNodesToGroups(config, context)
+}
+
+function appendChainedNodesToGroups(config, context) {
+  const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : []
+
+  for (const group of groups) {
+    if (!Array.isArray(group.proxies) || group.proxies.length === 0) continue
+
+    const next = []
+    for (const name of group.proxies) {
+      next.push(name)
+      const chainName = context.chainNameByTargetName[name]
+      if (chainName) next.push(chainName)
+    }
+    group.proxies = uniqueNames(next)
+  }
+}
+
+function makeChainProxyName(targetName, viaName, usedNames) {
+  const base = `链式出口 | ${targetName} | 前置 ${viaName}`
+  if (!usedNames.has(base)) return base
+
+  let index = 2
+  while (usedNames.has(`${base} #${index}`)) index += 1
+  return `${base} #${index}`
 }
 
 function removeInlinedProviders(config, inlinedProviderIds) {
@@ -239,10 +284,12 @@ async function showUI(profile) {
   const ruleViews = computed(() => rules.value.map((rule) => {
     const targetName = context.idToName[rule.targetId] || rule.targetId
     const viaName = context.idToName[rule.viaId] || rule.viaId
+    const chainName = makeChainProxyName(targetName, viaName, new Set(Object.values(context.idToName)))
     return {
       ...rule,
       targetName,
       viaName,
+      chainName,
       preview: `本地 -> ${viaName} -> ${targetName} -> 目标网站`,
       invalid: rule.targetId === rule.viaId || !context.idToName[rule.targetId] || !context.idToName[rule.viaId],
     }
@@ -267,19 +314,30 @@ async function showUI(profile) {
               </div>
             </div>
 
-            <div class="rounded-8 p-10 mb-10" style="border: 1px solid var(--border-color);">
-              <div class="text-12 mb-6" style="opacity: .68">运行路径</div>
-              <div style="display: grid; grid-template-columns: 58px 1fr 1fr 58px; gap: 6px; align-items: center;">
-                <div class="chain-step">本机</div>
-                <div class="chain-step" :class="{ active: pickMode === 'via' }" @click="pickMode = 'via'">
-                  {{ selectedViaName || '选择前置' }}
+            <div class="route-board mb-10">
+              <div class="text-12 mb-10" style="opacity: .68">运行路径</div>
+              <div class="route-flow">
+                <div class="route-step" data-index="1">
+                  <div class="route-label">起点</div>
+                  <div class="route-value">本机</div>
                 </div>
-                <div class="chain-step" :class="{ active: pickMode === 'target' }" @click="pickMode = 'target'">
-                  {{ selectedTargetName || '选择出口' }}
+                <div class="route-connector"></div>
+                <div class="route-step pickable" data-index="2" :class="{ active: pickMode === 'via', empty: !selectedViaName }" @click="pickMode = 'via'">
+                  <div class="route-label">前置节点</div>
+                  <div class="route-value">{{ selectedViaName || '点击选择' }}</div>
                 </div>
-                <div class="chain-step">网站</div>
+                <div class="route-connector"></div>
+                <div class="route-step pickable" data-index="3" :class="{ active: pickMode === 'target', empty: !selectedTargetName }" @click="pickMode = 'target'">
+                  <div class="route-label">最终出口</div>
+                  <div class="route-value">{{ selectedTargetName || '点击选择' }}</div>
+                </div>
+                <div class="route-connector"></div>
+                <div class="route-step" data-index="4">
+                  <div class="route-label">目标</div>
+                  <div class="route-value">网站</div>
+                </div>
               </div>
-              <div class="text-12 mt-8" style="opacity: .64">生成结果：出口节点写入 dialer-proxy = 前置节点。</div>
+              <div class="text-12 mt-8" style="opacity: .64">生成结果：新增一个链式出口节点，原节点保持不变。</div>
             </div>
 
             <div class="flex gap-8 mb-10">
@@ -316,7 +374,7 @@ async function showUI(profile) {
             <div class="flex justify-between items-center mb-10">
               <div>
                 <div class="font-bold text-18">已配置链路</div>
-                <div class="text-12 mt-4" style="opacity: .68">只需要让策略组选择“出口节点”，插件会在生成配置时自动套上前置。</div>
+                <div class="text-12 mt-4" style="opacity: .68">生成后请在策略组里选择名称更明确的“链式出口”新节点。</div>
               </div>
             </div>
 
@@ -333,7 +391,8 @@ async function showUI(profile) {
                     <span class="arrow">-></span>
                     <span>{{ rule.targetName }}</span>
                   </div>
-                  <div class="text-12 mt-6" style="opacity: .66">dialer-proxy: {{ rule.viaName }}</div>
+                  <div class="text-12 mt-6" style="opacity: .66">新节点：{{ rule.chainName }}</div>
+                  <div class="text-12 mt-4" style="opacity: .58">基于原节点：{{ rule.targetName }}；dialer-proxy: {{ rule.viaName }}</div>
                   <div v-if="rule.invalid" class="text-12 mt-6" style="color: #d4380d">规则无效：节点不存在或出口与前置相同。</div>
                 </div>
                 <div class="flex flex-col gap-6 items-end">
@@ -354,8 +413,7 @@ async function showUI(profile) {
             </div>
             <div v-if="showAdvanced" class="flex flex-col gap-8 text-13 mt-10">
               <label><input type="checkbox" v-model="options.inlineProviders" /> 展开订阅 provider 到策略组 proxies</label>
-              <label><input type="checkbox" v-model="options.removeInlinedProviders" /> 删除已展开的 proxy-providers，强制使用链式本地节点</label>
-              <label><input type="checkbox" v-model="options.keepUnmappedDialerProxyField" /> 保留未配置节点已有的 dialer-proxy 字段</label>
+              <label><input type="checkbox" v-model="options.removeInlinedProviders" /> 删除已展开的 proxy-providers，确保策略组能看到新增链式节点</label>
             </div>
           </div>
         </section>
@@ -365,25 +423,99 @@ async function showUI(profile) {
         const style = document.createElement('style')
         style.id = 'provider-chain-manager-style'
         style.textContent = `
-        .chain-step {
-          min-height: 38px;
-          padding: 7px 8px;
+        .route-board {
           border: 1px solid var(--border-color);
           border-radius: 8px;
-          display: flex;
+          background: linear-gradient(180deg, rgba(255, 255, 255, .52), rgba(128, 128, 128, .04));
+          padding: 12px;
+        }
+        .route-flow {
+          width: min(430px, 100%);
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        .route-step {
+          min-height: 66px;
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          background: var(--background-color);
+          display: grid;
+          grid-template-columns: 34px minmax(0, 1fr);
           align-items: center;
-          justify-content: center;
-          text-align: center;
-          font-size: 12px;
-          line-height: 1.25;
-          word-break: break-all;
+          column-gap: 10px;
+          padding: 9px 11px;
+          box-shadow: 0 1px 0 rgba(0, 0, 0, .03);
+        }
+        .route-step.pickable {
           cursor: pointer;
         }
-        .chain-step.active {
+        .route-step.active {
           border-color: #1677ff;
-          background: rgba(64, 128, 255, .12);
-          color: #1677ff;
+          background: rgba(64, 128, 255, .06);
+          box-shadow: 0 0 0 3px rgba(64, 128, 255, .12);
+        }
+        .route-step::before {
+          content: attr(data-index);
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          border: 1px solid var(--border-color);
+          background: var(--background-color);
+          grid-row: 1 / span 2;
+          display: grid;
+          place-items: center;
+          opacity: .72;
+          font-size: 11px;
           font-weight: 700;
+        }
+        .route-step.pickable::before {
+          border-color: rgba(22, 119, 255, .42);
+          background: rgba(64, 128, 255, .10);
+          color: #1677ff;
+          opacity: 1;
+        }
+        .route-step.active::before {
+          border-color: #1677ff;
+          background: #1677ff;
+          color: transparent;
+          box-shadow: inset 0 0 0 7px var(--background-color);
+        }
+        .route-label {
+          align-self: end;
+          opacity: .62;
+          font-size: 12px;
+        }
+        .route-value {
+          align-self: start;
+          min-width: 0;
+          overflow-wrap: anywhere;
+          font-weight: 700;
+          line-height: 1.35;
+        }
+        .route-step.empty .route-value {
+          color: #1677ff;
+        }
+        .route-connector {
+          height: 28px;
+          width: 1px;
+          background: var(--border-color);
+          position: relative;
+          margin: -1px auto;
+          opacity: .78;
+        }
+        .route-connector::after {
+          content: "";
+          position: absolute;
+          left: 50%;
+          bottom: -1px;
+          width: 6px;
+          height: 6px;
+          border-right: 1px solid var(--border-color);
+          border-bottom: 1px solid var(--border-color);
+          transform: translateX(-50%) rotate(45deg);
+          background: var(--background-color);
         }
         .node-row {
           width: 100%;
