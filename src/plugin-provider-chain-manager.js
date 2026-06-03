@@ -1,8 +1,8 @@
 const PATH = 'data/third/provider-chain-manager'
 const LEGACY_PATH = 'data/third/proxy-chain-manager'
-const VIRTUAL_SUBSCRIBE_ID = 'ID_provider_chain_virtual'
+const PLUGIN_ID = 'gfc-provider-chain-manager'
+const VIRTUAL_SUBSCRIBE_BASE_ID = 'ID_provider_chain_virtual'
 const VIRTUAL_PROVIDER_NAME = '链式出口'
-const VIRTUAL_SUBSCRIBE_PATH = `data/subscribes/${VIRTUAL_SUBSCRIBE_ID}.yaml`
 
 const DEFAULT_OPTIONS = {
   attachVirtualProvider: true,
@@ -23,22 +23,21 @@ const onGenerate = async (config, profile) => {
 
 async function createVirtualSubscription(config, context, rules, options, subscribesStore) {
   const { chainProxies, affectedProviderIds } = buildChainProxies(config, context, rules)
-
-  await writeVirtualSubscribe(chainProxies, subscribesStore)
+  const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
 
   if (chainProxies.length === 0) {
-    removeVirtualProvider(config)
+    removeVirtualProvider(config, descriptor.id)
     return
   }
 
   config['proxy-providers'] = config['proxy-providers'] || {}
-  config['proxy-providers'][VIRTUAL_SUBSCRIBE_ID] = {
+  config['proxy-providers'][descriptor.id] = {
     type: 'file',
-    path: `../subscribes/${VIRTUAL_SUBSCRIBE_ID}.yaml`,
+    path: `../subscribes/${descriptor.id}.yaml`,
   }
 
   if (options.attachVirtualProvider) {
-    attachVirtualProviderToGroups(config, affectedProviderIds)
+    attachVirtualProviderToGroups(config, affectedProviderIds, descriptor.id)
   }
 }
 
@@ -75,12 +74,13 @@ function buildChainProxies(config, context, rules) {
 }
 
 async function writeVirtualSubscribe(chainProxies, subscribesStore) {
-  await Plugins.WriteFile(VIRTUAL_SUBSCRIBE_PATH, Plugins.YAML.stringify({ proxies: chainProxies }))
-
   const raw = await Plugins.ReadFile('data/subscribes.yaml').catch(() => '[]')
   const subscribes = Plugins.YAML.parse(raw || '[]') || []
-  const entry = makeVirtualSubscribeEntry(chainProxies)
-  const index = subscribes.findIndex((sub) => sub?.id === VIRTUAL_SUBSCRIBE_ID)
+  const descriptor = resolveVirtualSubscribeDescriptor(subscribes, subscribesStore)
+  const entry = makeVirtualSubscribeEntry(chainProxies, descriptor)
+  const index = subscribes.findIndex((sub) => sub?.id === descriptor.id)
+
+  await Plugins.WriteFile(descriptor.path, Plugins.YAML.stringify({ proxies: chainProxies }))
 
   if (index >= 0) {
     subscribes[index] = { ...subscribes[index], ...entry }
@@ -90,12 +90,13 @@ async function writeVirtualSubscribe(chainProxies, subscribesStore) {
 
   await Plugins.WriteFile('data/subscribes.yaml', Plugins.YAML.stringify(subscribes))
   refreshVirtualSubscribeStore(subscribesStore, entry)
+  return descriptor
 }
 
 function refreshVirtualSubscribeStore(subscribesStore, entry) {
   if (!subscribesStore || !Array.isArray(subscribesStore.subscribes)) return
 
-  const currentIndex = subscribesStore.subscribes.findIndex((sub) => sub?.id === VIRTUAL_SUBSCRIBE_ID)
+  const currentIndex = subscribesStore.subscribes.findIndex((sub) => sub?.id === entry.id)
   if (currentIndex >= 0) {
     const next = subscribesStore.subscribes.slice()
     next.splice(currentIndex, 1, { ...next[currentIndex], ...entry })
@@ -106,10 +107,52 @@ function refreshVirtualSubscribeStore(subscribesStore, entry) {
   subscribesStore.subscribes = [...subscribesStore.subscribes, entry]
 }
 
-function makeVirtualSubscribeEntry(chainProxies) {
+function resolveVirtualSubscribeDescriptor(subscribes, subscribesStore) {
+  const storeSubscribes = Array.isArray(subscribesStore?.subscribes) ? subscribesStore.subscribes : []
+  const allSubscribes = [...subscribes, ...storeSubscribes]
+  const managed = allSubscribes.find(isManagedVirtualSubscribe)
+  if (managed?.id) return makeVirtualSubscribeDescriptor(managed.id)
+
+  const usedIds = new Set(allSubscribes.map((sub) => sub?.id).filter(Boolean))
+  if (!usedIds.has(VIRTUAL_SUBSCRIBE_BASE_ID)) return makeVirtualSubscribeDescriptor(VIRTUAL_SUBSCRIBE_BASE_ID)
+
+  let index = 2
+  while (usedIds.has(`${VIRTUAL_SUBSCRIBE_BASE_ID}_${index}`)) index += 1
+  return makeVirtualSubscribeDescriptor(`${VIRTUAL_SUBSCRIBE_BASE_ID}_${index}`)
+}
+
+function isManagedVirtualSubscribe(sub) {
+  if (!sub) return false
+  if (sub.managedBy === PLUGIN_ID) return true
+  if (sub['x-provider-chain-manager']?.managedBy === PLUGIN_ID) return true
+
+  return sub.id === VIRTUAL_SUBSCRIBE_BASE_ID
+    && sub.name === VIRTUAL_PROVIDER_NAME
+    && sub.path === makeVirtualSubscribePath(VIRTUAL_SUBSCRIBE_BASE_ID)
+}
+
+function makeVirtualSubscribeDescriptor(id) {
   return {
-    id: VIRTUAL_SUBSCRIBE_ID,
+    id,
     name: VIRTUAL_PROVIDER_NAME,
+    path: makeVirtualSubscribePath(id),
+  }
+}
+
+function makeVirtualSubscribePath(id) {
+  return `data/subscribes/${id}.yaml`
+}
+
+function makeVirtualSubscribeEntry(chainProxies, descriptor) {
+  return {
+    id: descriptor.id,
+    name: descriptor.name,
+    managedBy: PLUGIN_ID,
+    'x-provider-chain-manager': {
+      managedBy: PLUGIN_ID,
+      managed: true,
+      version: 1,
+    },
     useInternal: false,
     upload: 0,
     download: 0,
@@ -119,7 +162,7 @@ function makeVirtualSubscribeEntry(chainProxies) {
     type: 'File',
     url: '',
     website: '',
-    path: VIRTUAL_SUBSCRIBE_PATH,
+    path: descriptor.path,
     include: '',
     exclude: '',
     includeProtocol: '',
@@ -191,16 +234,16 @@ function addKnown(idToName, nameToId, id, name) {
   nameToId[name] = id
 }
 
-function attachVirtualProviderToGroups(config, affectedProviderIds) {
+function attachVirtualProviderToGroups(config, affectedProviderIds, providerId) {
   const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : []
   if (groups.length === 0) return
 
   let attached = false
   for (const group of groups) {
     if (!Array.isArray(group.use)) group.use = []
-    const usesAffectedProvider = group.use.some((providerId) => affectedProviderIds.has(providerId))
+    const usesAffectedProvider = group.use.some((usedProviderId) => affectedProviderIds.has(usedProviderId))
     if (usesAffectedProvider) {
-      group.use = uniqueNames([...group.use, VIRTUAL_SUBSCRIBE_ID])
+      group.use = uniqueNames([...group.use, providerId])
       attached = true
     }
   }
@@ -209,7 +252,7 @@ function attachVirtualProviderToGroups(config, affectedProviderIds) {
   for (const group of groups) {
     if (!['select', 'url-test', 'fallback', 'load-balance'].includes(group.type)) continue
     if (!Array.isArray(group.use)) group.use = []
-    group.use = uniqueNames([...group.use, VIRTUAL_SUBSCRIBE_ID])
+    group.use = uniqueNames([...group.use, providerId])
   }
 }
 
@@ -222,9 +265,9 @@ function makeChainProxyName(targetName, viaName, usedNames) {
   return `${base} #${index}`
 }
 
-function removeVirtualProvider(config) {
+function removeVirtualProvider(config, providerId) {
   if (!config['proxy-providers']) return
-  delete config['proxy-providers'][VIRTUAL_SUBSCRIBE_ID]
+  delete config['proxy-providers'][providerId]
 }
 
 function uniqueNames(names) {
