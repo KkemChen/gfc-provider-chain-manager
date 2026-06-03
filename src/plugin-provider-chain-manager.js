@@ -35,6 +35,7 @@ async function createVirtualSubscription(config, context, rules, options, subscr
     type: 'file',
     path: `../subscribes/${descriptor.id}.yaml`,
   }
+  ensureProxyServerNameserver(config)
 
   if (options.attachVirtualProvider) {
     attachVirtualProviderToGroups(config, affectedProviderIds, descriptor.id)
@@ -282,6 +283,15 @@ function cleanupVirtualProviderReferences(config) {
 function isVirtualProviderId(providerId) {
   return providerId === VIRTUAL_SUBSCRIBE_BASE_ID
     || String(providerId || '').startsWith(`${VIRTUAL_SUBSCRIBE_BASE_ID}_`)
+}
+
+function ensureProxyServerNameserver(config) {
+  if (Array.isArray(config['proxy-server-nameserver']) && config['proxy-server-nameserver'].length > 0) return
+
+  config['proxy-server-nameserver'] = [
+    'https://223.5.5.5/dns-query',
+    'https://1.1.1.1/dns-query',
+  ]
 }
 
 function uniqueNames(names) {
