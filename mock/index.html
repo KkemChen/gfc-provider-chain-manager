@@ -121,7 +121,7 @@
 
     .content {
       display: grid;
-      grid-template-columns: 360px minmax(0, 1fr) 310px;
+      grid-template-columns: 360px minmax(0, 1fr);
       gap: 0;
       min-height: 0;
     }
@@ -533,59 +533,61 @@
           <div id="nodeList"></div>
         </aside>
 
-        <section class="canvas">
-          <div class="route-board">
-            <div class="route">
-              <div class="step" data-index="1">
-                <div class="step-label">起点</div>
-                <div class="step-value">本机</div>
-              </div>
-              <div class="connector"></div>
-              <div class="step pickable empty" id="viaStep" data-index="2">
-                <div class="step-label">前置节点</div>
-                <div class="step-value" id="viaValue">点击选择</div>
-              </div>
-              <div class="connector"></div>
-              <div class="step pickable empty active" id="targetStep" data-index="3">
-                <div class="step-label">最终出口</div>
-                <div class="step-value" id="targetValue">点击选择</div>
-              </div>
-              <div class="connector"></div>
-              <div class="step" data-index="4">
-                <div class="step-label">目标</div>
-                <div class="step-value">网站</div>
+        <div style="display: flex; flex-direction: column; min-height: 0; overflow: auto; border-left: 1px solid var(--line);">
+          <section class="canvas" style="border-bottom: 1px solid var(--line); flex: 0 0 auto;">
+            <div class="route-board">
+              <div class="route">
+                <div class="step" data-index="1">
+                  <div class="step-label">起点</div>
+                  <div class="step-value">本机</div>
+                </div>
+                <div class="connector"></div>
+                <div class="step pickable empty" id="viaStep" data-index="2">
+                  <div class="step-label">前置节点</div>
+                  <div class="step-value" id="viaValue">点击选择</div>
+                </div>
+                <div class="connector"></div>
+                <div class="step pickable empty active" id="targetStep" data-index="3">
+                  <div class="step-label">最终出口</div>
+                  <div class="step-value" id="targetValue">点击选择</div>
+                </div>
+                <div class="connector"></div>
+                <div class="step" data-index="4">
+                  <div class="step-label">目标</div>
+                  <div class="step-value">网站</div>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="summary">
-            <div class="note">
-              <strong>用户动作</strong>
-              <div class="hint">只需要保存一条链路，然后在策略组里继续选择原来的出口节点。</div>
+            <div class="summary">
+              <div class="note">
+                <strong>用户动作</strong>
+                <div class="hint">只需要保存一条链路，然后在策略组里继续选择原来的出口节点。</div>
+              </div>
+              <div class="note">
+                <strong>生成结果</strong>
+                <div class="hint" id="yamlPreview">会新增一个链式出口节点，原节点保持不变。</div>
+              </div>
             </div>
-            <div class="note">
-              <strong>生成结果</strong>
-              <div class="hint" id="yamlPreview">会新增一个链式出口节点，原节点保持不变。</div>
+          </section>
+
+          <aside class="pane" style="border-right: 0; overflow: visible;">
+            <div class="section-title">
+              <strong>已配置链路</strong>
+              <span class="hint" id="ruleCount">2 条</span>
             </div>
-          </div>
-        </section>
+            <div class="rules" id="rules"></div>
 
-        <aside class="pane">
-          <div class="section-title">
-            <strong>已配置链路</strong>
-            <span class="hint" id="ruleCount">2 条</span>
-          </div>
-          <div class="rules" id="rules"></div>
-
-          <div class="advanced">
-            <details>
-              <summary>高级生成选项</summary>
-              <label class="check"><input type="checkbox" checked /> 展开订阅 provider 到策略组 proxies</label>
-              <label class="check"><input type="checkbox" checked /> 删除已展开的 proxy-providers</label>
-              <label class="check"><input type="checkbox" /> 保留未配置节点已有 dialer-proxy</label>
-            </details>
-          </div>
-        </aside>
+            <div class="advanced">
+              <details>
+                <summary>高级生成选项</summary>
+                <label class="check"><input type="checkbox" checked /> 展开订阅 provider 到策略组 proxies</label>
+                <label class="check"><input type="checkbox" checked /> 删除已展开的 proxy-providers</label>
+                <label class="check"><input type="checkbox" /> 保留未配置节点已有 dialer-proxy</label>
+              </details>
+            </div>
+          </aside>
+        </div>
       </section>
     </div>
   </main>

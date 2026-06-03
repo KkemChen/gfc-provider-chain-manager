@@ -294,198 +294,228 @@ async function showUI(profile) {
 
   const component = {
     template: `
-      <div class="pb-8 pr-8" style="display: grid; grid-template-columns: minmax(320px, .95fr) minmax(0, 1.25fr); gap: 14px; overflow: hidden;">
-        <section style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="p-14 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
-            <div class="flex justify-between items-center gap-10">
+      <div class="pb-8 pr-8" style="display: grid; grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr); gap: 16px; height: 76vh; max-height: 720px; overflow: hidden; font-family: system-ui, -apple-system, sans-serif;">
+        <!-- LEFT COLUMN: NODE PICKER -->
+        <section style="display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 12px;">
+          <div style="background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
-                <div class="font-bold text-18">选择节点</div>
-                <div class="text-12 mt-4" style="opacity: .62">先出口，后前置。</div>
+                <div style="font-weight: bold; font-size: 16px;">选择节点</div>
+                <div style="font-size: 12px; opacity: 0.6; margin-top: 2px;">先选出口节点，再选前置节点</div>
               </div>
-              <div class="text-12 px-8 py-4 rounded-6" style="background: rgba(64, 128, 255, .12); color: #1677ff;">
+              <div style="font-size: 12px; padding: 4px 8px; border-radius: 4px; background: rgba(22, 119, 255, 0.1); color: #1677ff; font-weight: bold;">
                 已启用 {{ enabledRuleCount }}
               </div>
             </div>
 
-            <div class="flex gap-8">
-              <Button :type="pickMode === 'target' ? 'primary' : 'default'" @click="pickMode = 'target'">选择出口</Button>
-              <Button :type="pickMode === 'via' ? 'primary' : 'default'" @click="pickMode = 'via'">选择前置</Button>
-              <div class="text-12" style="margin-left: auto; align-self: center; opacity: .64;">当前：{{ pickMode === 'target' ? '出口' : '前置' }}</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: rgba(128, 128, 128, 0.08); padding: 3px; border-radius: 6px; border: 1px solid var(--border-color);">
+              <button :style="tabButtonStyle(pickMode === 'target')" @click="pickMode = 'target'">选择出口</button>
+              <button :style="tabButtonStyle(pickMode === 'via')" @click="pickMode = 'via'">选择前置</button>
             </div>
 
-            <input v-model="query" :placeholder="pickMode === 'target' ? '搜索出口节点，例如 trojan / hy2 / 新加坡' : '搜索前置节点，例如 anytls / x-air / 新加坡'" style="width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px;" />
+            <input v-model="query" 
+                   :placeholder="pickMode === 'target' ? '搜索出口节点，如 trojan / hy2 / 香港' : '搜索前置节点，如 anytls / 专线' " 
+                   :style="inputStyle"
+                   @focus="inputFocused = true"
+                   @blur="inputFocused = false" />
           </div>
 
-          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
-            <div style="max-height: 610px; overflow: auto; padding-right: 4px;">
-              <div v-for="section in filteredSections" :key="section.name" class="mb-10">
-                <div class="text-12 mb-6" style="opacity: .58">{{ section.name }}</div>
+          <div style="background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; flex: 1; min-height: 0; display: flex; flex-direction: column;">
+            <div style="flex: 1; overflow-y: auto; padding-right: 4px;">
+              <div v-for="section in filteredSections" :key="section.name" style="margin-bottom: 12px;">
+                <div style="font-size: 11px; opacity: 0.5; font-weight: bold; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">{{ section.name }}</div>
                 <div style="display: grid; gap: 6px;">
                   <button v-for="node in section.nodes" :key="node.id" :style="nodeRowStyle(node.id === draftTargetId || node.id === draftViaId)" @click="chooseNode(node.id)">
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;">{{ node.name }}</span>
-                    <span style="opacity: .62; font-size: 12px;">{{ node.type || section.type }}</span>
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold; font-size: 13px;">{{ node.name }}</span>
+                    <span style="opacity: 0.5; font-size: 11px; flex-shrink: 0; text-transform: uppercase;">{{ node.type || section.type }}</span>
                   </button>
                 </div>
               </div>
-              <div v-if="filteredSections.length === 0" class="text-13 p-10" style="opacity: .68">没有匹配的节点。</div>
+              <div v-if="filteredSections.length === 0" style="font-size: 13px; opacity: 0.6; text-align: center; padding: 20px 0;">没有匹配的节点。</div>
             </div>
           </div>
         </section>
 
-        <section style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
-            <div class="flex justify-between items-center mb-10">
-              <div class="font-bold text-16">链路预览</div>
-              <Button type="primary" @click="addRule">保存链路</Button>
+        <!-- RIGHT COLUMN: PREVIEW & CONFIGURED CHAINS -->
+        <section style="display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 12px;">
+          <!-- RIGHT TOP: VERTICAL ROUTE PREVIEW -->
+          <div style="background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="font-weight: bold; font-size: 15px;">链路预览</div>
+              <Button type="primary" style="height: 28px; padding: 0 12px; font-size: 12px;" @click="addRule">保存链路</Button>
             </div>
-            <div style="border: 1px solid var(--border-color); border-radius: 8px; background: rgba(255,255,255,.035); padding: 10px 12px; overflow: hidden;">
-              <div style="width: min(470px, 100%); margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 0;">
-                <div :style="routeStepStyle(false, false)">
-                  <div :style="routeDotStyle(false)">1</div>
+            <div style="border: 1px solid var(--border-color); border-radius: 8px; background: rgba(128, 128, 128, 0.02); padding: 12px 14px;">
+              <div style="position: relative; display: flex; flex-direction: column; gap: 8px; padding-left: 12px;">
+                <div style="position: absolute; left: 4px; top: 12px; bottom: 12px; width: 2px; background: var(--border-color); opacity: 0.7; z-index: 1;"></div>
+                
+                <!-- Step 1: Start -->
+                <div style="position: relative; display: flex; gap: 12px; align-items: flex-start; z-index: 2;">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background: var(--border-color); border: 2px solid var(--background-color); margin-top: 5px; flex-shrink: 0;"></div>
                   <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">起点</div>
-                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">本机</div>
+                    <span style="font-size: 11px; opacity: 0.5; display: block; line-height: 1.2;">起点</span>
+                    <span style="font-size: 13px; font-weight: bold;">本机</span>
                   </div>
                 </div>
-                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
-                <div :style="routeStepStyle(pickMode === 'via', true)" @click="pickMode = 'via'">
-                  <div :style="routeDotStyle(pickMode === 'via')">{{ pickMode === 'via' ? '' : '2' }}</div>
-                  <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">前置节点</div>
-                    <div :style="routeValueStyle(!selectedViaName)">{{ selectedViaName || '点击选择' }}</div>
+
+                <!-- Step 2: Via Node -->
+                <div @click="pickMode = 'via'" :style="timelineStepStyle(pickMode === 'via', !selectedViaName)">
+                  <div :style="timelineDotStyle(pickMode === 'via', !selectedViaName)"></div>
+                  <div style="min-width: 0; flex: 1;">
+                    <span style="font-size: 11px; opacity: 0.5; display: block; line-height: 1.2;">前置节点</span>
+                    <span :style="timelineValueStyle(!selectedViaName)">{{ selectedViaName || '未选择 (点击此处或左侧列表)' }}</span>
                   </div>
                 </div>
-                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
-                <div :style="routeStepStyle(pickMode === 'target', true)" @click="pickMode = 'target'">
-                  <div :style="routeDotStyle(pickMode === 'target')">{{ pickMode === 'target' ? '' : '3' }}</div>
-                  <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">最终出口</div>
-                    <div :style="routeValueStyle(!selectedTargetName)">{{ selectedTargetName || '点击选择' }}</div>
+
+                <!-- Step 3: Target Node -->
+                <div @click="pickMode = 'target'" :style="timelineStepStyle(pickMode === 'target', !selectedTargetName)">
+                  <div :style="timelineDotStyle(pickMode === 'target', !selectedTargetName)"></div>
+                  <div style="min-width: 0; flex: 1;">
+                    <span style="font-size: 11px; opacity: 0.5; display: block; line-height: 1.2;">最终出口</span>
+                    <span :style="timelineValueStyle(!selectedTargetName)">{{ selectedTargetName || '未选择 (点击此处或左侧列表)' }}</span>
                   </div>
                 </div>
-                <div :style="routeConnectorStyle()"><span :style="routeArrowStyle()"></span></div>
-                <div :style="routeStepStyle(false, false)">
-                  <div :style="routeDotStyle(false)">4</div>
+
+                <!-- Step 4: Destination -->
+                <div style="position: relative; display: flex; gap: 12px; align-items: flex-start; z-index: 2;">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background: var(--border-color); border: 2px solid var(--background-color); margin-top: 5px; flex-shrink: 0;"></div>
                   <div style="min-width: 0;">
-                    <div style="opacity: .62; font-size: 12px; line-height: 1.35;">目标</div>
-                    <div style="font-weight: 700; line-height: 1.35; overflow-wrap: anywhere;">网站</div>
+                    <span style="font-size: 11px; opacity: 0.5; display: block; line-height: 1.2;">目标</span>
+                    <span style="font-size: 13px; font-weight: bold;">目标网站</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="p-12 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color); min-height: 0; flex: 1;">
-            <div class="flex justify-between items-center mb-10">
-              <div class="font-bold text-16">已配置链路</div>
-              <div class="text-12" style="opacity: .62;">{{ ruleViews.length }} 条</div>
+          <!-- RIGHT BOTTOM: CONFIGURED CHAINS -->
+          <div style="background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; flex: 1; min-height: 0; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-shrink: 0;">
+              <div style="font-weight: bold; font-size: 15px;">已配置链路</div>
+              <div style="font-size: 12px; opacity: 0.6;">{{ ruleViews.length }} 条</div>
             </div>
 
-            <div v-if="ruleViews.length === 0" class="rounded-8 p-16 text-14" style="border: 1px dashed var(--border-color); opacity: .72">
-              选择出口和前置后保存
+            <div v-if="ruleViews.length === 0" style="border: 1px dashed var(--border-color); border-radius: 8px; padding: 24px; text-align: center; font-size: 13px; opacity: 0.5; flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+              <span>暂无配置。请选择出口和前置后点击“保存链路”生成。</span>
             </div>
 
-            <div v-if="ruleViews.length > 0" style="max-height: 330px; overflow: auto; padding-right: 4px;">
-            <div v-for="(rule, index) in ruleViews" :key="rule.targetId" :style="ruleCardStyle(rule)">
-              <div class="flex justify-between gap-10">
-                <div style="min-width: 0; flex: 1;">
-                  <div style="display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 700; line-height: 1.35;">
-                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ rule.viaName }}</span>
-                    <span style="opacity: .5; flex: 0 0 auto;">-></span>
-                    <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ rule.targetName }}</span>
+            <div v-if="ruleViews.length > 0" style="flex: 1; overflow-y: auto; padding-right: 4px;">
+              <div v-for="(rule, index) in ruleViews" :key="rule.targetId" :style="ruleRowStyle(rule)">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                  <div style="min-width: 0; flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; font-size: 13px;">
+                      <span style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 140px; color: #1677ff;">{{ rule.viaName }}</span>
+                      <span style="opacity: 0.4; flex-shrink: 0; font-size: 11px;">➔</span>
+                      <span style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 140px;">{{ rule.targetName }}</span>
+                    </div>
+                    <div style="font-size: 11px; opacity: 0.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;">
+                      {{ rule.chainName }}
+                    </div>
+                    <div v-if="rule.invalid" style="font-size: 11px; color: #d4380d; margin-top: 2px; font-weight: 500;">⚠ 规则失效：节点不存在</div>
                   </div>
-                  <div class="text-12 mt-6" style="opacity: .66; overflow-wrap: anywhere;">{{ rule.chainName }}</div>
-                  <div v-if="rule.invalid" class="text-12 mt-6" style="color: #d4380d">规则无效：节点不存在或出口与前置相同。</div>
-                </div>
-                <div class="flex flex-col gap-6 items-end">
-                  <label class="text-13"><input type="checkbox" v-model="rule.enabled" @change="syncEnabled(index, rule.enabled)" /> 启用</label>
-                  <div class="flex gap-6">
-                    <Button size="small" @click="editRule(rule)">改</Button>
-                    <Button size="small" @click="removeRule(index)">删</Button>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; user-select: none;">
+                      <input type="checkbox" v-model="rule.enabled" @change="syncEnabled(index, rule.enabled)" style="cursor: pointer; margin: 0;" />
+                      <span>启用</span>
+                    </label>
+                    <div style="display: flex; gap: 4px;">
+                      <Button size="small" style="height: 24px; padding: 0 8px; font-size: 11px;" @click="editRule(rule)">编辑</Button>
+                      <Button size="small" style="height: 24px; padding: 0 8px; font-size: 11px; color: #d4380d; border-color: rgba(212,56,13,0.15);" @click="removeRule(index)">删除</Button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            </div>
           </div>
 
-          <div class="p-10 rounded-8" style="background: var(--background-color); border: 1px solid var(--border-color);">
-            <div class="flex justify-between items-center" @click="showAdvanced = !showAdvanced" style="cursor: pointer;">
-              <div class="font-bold text-14">高级选项</div>
-              <div class="text-12" style="opacity: .66">{{ showAdvanced ? '收起' : '展开' }}</div>
+          <!-- ADVANCED SETTINGS -->
+          <div style="background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; flex-shrink: 0;">
+            <div @click="showAdvanced = !showAdvanced" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+              <div style="font-weight: bold; font-size: 13px; opacity: 0.85;">高级生成选项</div>
+              <div style="font-size: 11px; opacity: 0.6;">{{ showAdvanced ? '收起 ▴' : '展开 ▾' }}</div>
             </div>
-            <div v-if="showAdvanced" class="flex flex-col gap-6 text-13 mt-8">
-              <label><input type="checkbox" v-model="options.inlineProviders" /> 展开订阅 provider 到策略组 proxies</label>
-              <label><input type="checkbox" v-model="options.removeInlinedProviders" /> 删除已展开的 proxy-providers</label>
+            <div v-if="showAdvanced" style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; opacity: 0.85;">
+                <input type="checkbox" v-model="options.inlineProviders" style="cursor: pointer; margin: 0;" />
+                <span>展开订阅 provider 到策略组 proxies</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; opacity: 0.85;">
+                <input type="checkbox" v-model="options.removeInlinedProviders" style="cursor: pointer; margin: 0;" />
+                <span>删除已展开的 proxy-providers</span>
+              </label>
             </div>
           </div>
         </section>
       </div>`,
     setup() {
-      function routeStepStyle(active, pickable) {
+      const inputFocused = ref(false)
+      const inputStyle = computed(() => ({
+        width: '100%',
+        boxSizing: 'border-box',
+        height: '34px',
+        padding: '0 12px',
+        border: `1px solid ${inputFocused.value ? '#1677ff' : 'var(--border-color)'}`,
+        borderRadius: '6px',
+        background: 'rgba(128, 128, 128, 0.04)',
+        color: 'inherit',
+        outline: 'none',
+        boxShadow: inputFocused.value ? '0 0 0 2px rgba(22, 119, 255, 0.15)' : 'none',
+        transition: 'all 0.2s ease',
+      }))
+
+      function tabButtonStyle(active) {
         return {
-          minHeight: '52px',
-          border: `1px solid ${active ? '#1677ff' : 'var(--border-color)'}`,
-          borderRadius: '7px',
-          background: active ? 'rgba(22, 119, 255, .12)' : 'rgba(255, 255, 255, .025)',
-          display: 'grid',
-          gridTemplateColumns: '30px minmax(0, 1fr)',
-          alignItems: 'center',
-          columnGap: '8px',
-          padding: '7px 10px',
-          boxShadow: active ? '0 0 0 2px rgba(22, 119, 255, .14)' : 'none',
-          cursor: pickable ? 'pointer' : 'default',
+          border: 'none',
+          padding: '6px 12px',
+          borderRadius: '4px',
+          background: active ? 'var(--background-color)' : 'transparent',
+          color: active ? 'inherit' : 'rgba(128, 128, 128, 0.7)',
+          fontWeight: active ? 'bold' : 'normal',
+          cursor: 'pointer',
+          textAlign: 'center',
+          fontSize: '12px',
+          transition: 'all 0.2s ease',
+          boxShadow: active ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
         }
       }
 
-      function routeDotStyle(active) {
+      function timelineStepStyle(active, empty) {
         return {
-          width: '22px',
-          height: '22px',
-          borderRadius: '50%',
-          border: `1px solid ${active ? '#1677ff' : 'var(--border-color)'}`,
-          background: active ? '#1677ff' : 'var(--background-color)',
-          boxShadow: active ? 'inset 0 0 0 6px var(--background-color)' : 'none',
-          display: 'grid',
-          placeItems: 'center',
-          opacity: active ? 1 : .72,
-          color: active ? 'transparent' : 'inherit',
-          fontSize: '10px',
-          fontWeight: 700,
-        }
-      }
-
-      function routeValueStyle(empty) {
-        return {
-          fontWeight: 700,
-          lineHeight: 1.35,
-          overflowWrap: 'anywhere',
-          color: empty ? '#1677ff' : 'inherit',
-        }
-      }
-
-      function routeConnectorStyle() {
-        return {
-          height: '16px',
-          width: '1px',
-          background: 'var(--border-color)',
           position: 'relative',
-          margin: '-1px auto',
-          opacity: .78,
+          display: 'flex',
+          gap: '12px',
+          alignItems: 'flex-start',
+          zIndex: 2,
+          cursor: 'pointer',
+          padding: '6px 8px',
+          borderRadius: '6px',
+          border: `1px solid ${active ? '#1677ff' : 'transparent'}`,
+          background: active ? 'rgba(22, 119, 255, 0.06)' : 'transparent',
+          transition: 'all 0.2s ease',
         }
       }
 
-      function routeArrowStyle() {
+      function timelineDotStyle(active, empty) {
         return {
-          position: 'absolute',
-          left: '50%',
-          bottom: '-1px',
-          width: '5px',
-          height: '5px',
-          borderRight: '1px solid var(--border-color)',
-          borderBottom: '1px solid var(--border-color)',
-          transform: 'translateX(-50%) rotate(45deg)',
-          background: 'var(--background-color)',
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          background: active ? '#1677ff' : (empty ? '#d4380d' : '#52c41a'),
+          border: '2px solid var(--background-color)',
+          marginTop: '6px',
+          flexShrink: 0,
+          boxShadow: active ? '0 0 0 3px rgba(22, 119, 255, 0.15)' : 'none',
+          transition: 'all 0.2s ease',
+        }
+      }
+
+      function timelineValueStyle(empty) {
+        return {
+          fontSize: '13px',
+          fontWeight: 'bold',
+          color: empty ? '#1677ff' : 'inherit',
+          lineHeight: 1.3,
+          display: 'block',
+          marginTop: '2px',
         }
       }
 
@@ -493,27 +523,29 @@ async function showUI(profile) {
         return {
           width: '100%',
           border: `1px solid ${selected ? '#1677ff' : 'var(--border-color)'}`,
-          background: selected ? 'rgba(64, 128, 255, .10)' : 'transparent',
-          borderRadius: '7px',
-          padding: '7px 9px',
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) auto',
+          background: selected ? 'rgba(22, 119, 255, 0.08)' : 'transparent',
+          borderRadius: '6px',
+          padding: '6px 10px',
+          display: 'flex',
+          justifyContent: 'space-between',
           gap: '8px',
           alignItems: 'center',
           textAlign: 'left',
           color: 'inherit',
           cursor: 'pointer',
+          transition: 'all 0.15s ease',
         }
       }
 
-      function ruleCardStyle(rule) {
+      function ruleRowStyle(rule) {
         return {
           border: `1px solid ${rule.invalid ? '#d4380d' : 'var(--border-color)'}`,
-          borderRadius: '7px',
-          padding: '10px',
-          marginBottom: '7px',
-          opacity: rule.enabled === false ? .56 : 1,
-          background: rule.invalid ? 'rgba(212, 56, 13, .06)' : 'transparent',
+          borderRadius: '6px',
+          padding: '8px 10px',
+          marginBottom: '8px',
+          opacity: rule.enabled === false ? 0.6 : 1,
+          background: rule.invalid ? 'rgba(212, 56, 13, 0.04)' : 'rgba(128, 128, 128, 0.01)',
+          transition: 'all 0.2s ease',
         }
       }
 
@@ -573,13 +605,14 @@ async function showUI(profile) {
         query,
         pickMode,
         showAdvanced,
-        routeStepStyle,
-        routeDotStyle,
-        routeValueStyle,
-        routeConnectorStyle,
-        routeArrowStyle,
+        inputFocused,
+        inputStyle,
+        tabButtonStyle,
+        timelineStepStyle,
+        timelineDotStyle,
+        timelineValueStyle,
         nodeRowStyle,
-        ruleCardStyle,
+        ruleRowStyle,
         chooseNode,
         addRule,
         editRule,
