@@ -11,6 +11,7 @@
   triggers:
     - on::manual
     - on::generate
+    - on::subscribe
   hasUI: true
   menus: {}
   context:

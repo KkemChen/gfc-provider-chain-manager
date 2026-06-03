@@ -8,6 +8,12 @@ const DEFAULT_OPTIONS = {
   attachVirtualProvider: true,
 }
 
+/* Trigger: on::subscribe */
+const onSubscribe = async (proxies, subscription) => {
+  await rebuildVirtualSubscriptionAfterSubscribe(subscription).catch(() => null)
+  return proxies
+}
+
 /* Trigger: on::generate */
 const onGenerate = async (config, profile) => {
   const subscribesStore = Plugins.useSubscribesStore()
@@ -19,6 +25,37 @@ const onGenerate = async (config, profile) => {
   await createVirtualSubscription(config, context, activeRules, options, subscribesStore)
 
   return config
+}
+
+async function rebuildVirtualSubscriptionAfterSubscribe(subscription) {
+  if (subscription?.id && isVirtualProviderId(subscription.id)) return
+
+  const profilesStore = Plugins.useProfilesStore()
+  const subscribesStore = Plugins.useSubscribesStore()
+  const profiles = Array.isArray(profilesStore.profiles) ? profilesStore.profiles : []
+
+  for (const profile of profiles) {
+    const state = await loadState(profile.id)
+    const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
+    if (activeRules.length === 0) continue
+
+    const config = await Plugins.generateConfig(Plugins.deepClone(profile))
+    const context = await collectContext(config, profile, subscribesStore)
+    if (subscription?.id && !isSubscriptionUsedByRules(subscription.id, activeRules, context)) continue
+
+    const { chainProxies } = buildChainProxies(config, context, activeRules)
+    const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
+    await refreshKernelProvider(config, descriptor.id)
+  }
+}
+
+function isSubscriptionUsedByRules(subscriptionId, rules, context) {
+  return rules.some((rule) => {
+    const targetName = context.idToName[rule.targetId]
+    const viaName = context.idToName[rule.viaId]
+    return context.providerIdByNodeName[targetName] === subscriptionId
+      || context.providerIdByNodeName[viaName] === subscriptionId
+  })
 }
 
 async function createVirtualSubscription(config, context, rules, options, subscribesStore) {
