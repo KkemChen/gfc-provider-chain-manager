@@ -95,13 +95,15 @@ async function writeVirtualSubscribe(chainProxies, subscribesStore) {
 function refreshVirtualSubscribeStore(subscribesStore, entry) {
   if (!subscribesStore || !Array.isArray(subscribesStore.subscribes)) return
 
-  const current = subscribesStore.subscribes.find((sub) => sub?.id === VIRTUAL_SUBSCRIBE_ID)
-  if (current) {
-    Object.assign(current, entry)
+  const currentIndex = subscribesStore.subscribes.findIndex((sub) => sub?.id === VIRTUAL_SUBSCRIBE_ID)
+  if (currentIndex >= 0) {
+    const next = subscribesStore.subscribes.slice()
+    next.splice(currentIndex, 1, { ...next[currentIndex], ...entry })
+    subscribesStore.subscribes = next
     return
   }
 
-  subscribesStore.subscribes.push(entry)
+  subscribesStore.subscribes = [...subscribesStore.subscribes, entry]
 }
 
 function makeVirtualSubscribeEntry(chainProxies) {
