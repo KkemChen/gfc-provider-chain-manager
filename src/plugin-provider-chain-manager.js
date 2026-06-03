@@ -43,7 +43,9 @@ async function createVirtualSubscription(config, context, rules, options, subscr
 }
 
 function buildChainProxies(config, context, rules) {
-  const localProxies = Array.isArray(config.proxies) ? Plugins.deepClone(config.proxies) : []
+  const localProxies = Array.isArray(config.proxies)
+    ? Plugins.deepClone(config.proxies).filter((proxy) => !isVirtualChainProxy(proxy))
+    : []
   const sourceProxies = [...localProxies, ...context.providerProxies]
   const usedNames = new Set(sourceProxies.map((proxy) => proxy?.name).filter(Boolean))
   const chainProxies = []
@@ -266,6 +268,10 @@ function makeChainProxyName(targetName, viaName, usedNames) {
   return `${base} #${index}`
 }
 
+function isVirtualChainProxy(proxy) {
+  return typeof proxy?.name === 'string' && proxy.name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `)
+}
+
 function cleanupVirtualProviderReferences(config) {
   if (config['proxy-providers']) {
     for (const providerId of Object.keys(config['proxy-providers'])) {
@@ -292,6 +298,30 @@ function ensureProxyServerNameserver(config) {
     'https://223.5.5.5/dns-query',
     'https://1.1.1.1/dns-query',
   ]
+}
+
+async function refreshKernelProvider(config, providerId) {
+  if (typeof Plugins.HttpPut !== 'function') return
+
+  const controller = normalizeController(config['external-controller'])
+  if (!controller || !providerId) return
+
+  const headers = {}
+  if (config.secret) headers.Authorization = `Bearer ${config.secret}`
+
+  await Plugins.HttpPut(
+    `${controller}/providers/proxies/${encodeURIComponent(providerId)}`,
+    headers,
+    ''
+  ).catch(() => null)
+}
+
+function normalizeController(controller) {
+  if (!controller) return ''
+  const value = String(controller).trim()
+  if (!value) return ''
+  if (/^https?:\/\//i.test(value)) return value.replace(/\/+$/, '')
+  return `http://${value.replace(/\/+$/, '')}`
 }
 
 function uniqueNames(names) {
@@ -740,12 +770,13 @@ async function showUI(profile) {
       async onOk() {
         const activeRules = rules.value.filter((rule) => rule.enabled !== false)
         const { chainProxies } = buildChainProxies(config, context, activeRules)
-        await writeVirtualSubscribe(chainProxies, subscribesStore)
+        const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
         await saveState(profile.id, {
           version: 1,
           options: options.value,
           rules: rules.value,
         })
+        await refreshKernelProvider(config, descriptor.id)
         Plugins.message.success('已保存，并刷新“链式出口”本地订阅')
       },
       afterClose() {
