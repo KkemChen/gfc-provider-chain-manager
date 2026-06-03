@@ -24,9 +24,9 @@ const onGenerate = async (config, profile) => {
 async function createVirtualSubscription(config, context, rules, options, subscribesStore) {
   const { chainProxies, affectedProviderIds } = buildChainProxies(config, context, rules)
   const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
+  cleanupVirtualProviderReferences(config)
 
   if (chainProxies.length === 0) {
-    removeVirtualProvider(config, descriptor.id)
     return
   }
 
@@ -265,9 +265,23 @@ function makeChainProxyName(targetName, viaName, usedNames) {
   return `${base} #${index}`
 }
 
-function removeVirtualProvider(config, providerId) {
-  if (!config['proxy-providers']) return
-  delete config['proxy-providers'][providerId]
+function cleanupVirtualProviderReferences(config) {
+  if (config['proxy-providers']) {
+    for (const providerId of Object.keys(config['proxy-providers'])) {
+      if (isVirtualProviderId(providerId)) delete config['proxy-providers'][providerId]
+    }
+  }
+
+  const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : []
+  for (const group of groups) {
+    if (!Array.isArray(group.use)) continue
+    group.use = group.use.filter((providerId) => !isVirtualProviderId(providerId))
+  }
+}
+
+function isVirtualProviderId(providerId) {
+  return providerId === VIRTUAL_SUBSCRIBE_BASE_ID
+    || String(providerId || '').startsWith(`${VIRTUAL_SUBSCRIBE_BASE_ID}_`)
 }
 
 function uniqueNames(names) {
