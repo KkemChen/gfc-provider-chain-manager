@@ -1,6 +1,22 @@
 # Verification
 
-After generating and applying the config, check the mihomo API:
+After generating and applying the config, check the generated config and virtual provider file:
+
+```powershell
+rg -n "链式出口|provider-chain-manager" "C:\Program Files\GUI.for.Clash\data\mihomo\config.yaml"
+Get-Content "C:\Program Files\GUI.for.Clash\data\third\provider-chain-manager\<profile-id>-virtual.yaml"
+```
+
+Expected:
+
+```text
+proxy-providers:
+  链式出口:
+    type: file
+    path: ../third/provider-chain-manager/<profile-id>-virtual.yaml
+```
+
+Then check the mihomo API:
 
 ```powershell
 $secret = '<external-controller secret>'
@@ -16,4 +32,4 @@ Expected:
 dialer-proxy: <front proxy name>
 ```
 
-The original outlet node should still exist unchanged. Select the generated `链式出口 | ...` node in GUI.for.Clash strategy groups.
+The original outlet node should still exist unchanged. Select the generated `链式出口` virtual subscription in GUI.for.Clash strategy groups.

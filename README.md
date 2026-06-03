@@ -1,6 +1,6 @@
 # GFC Provider Chain Manager
 
-GUI.for.Clash / GUI.for.Cores plugin for creating friendly chained proxy nodes from nodes imported through `proxy-providers`.
+GUI.for.Clash / GUI.for.Cores plugin for creating a friendly virtual chained-proxy subscription from nodes imported through `proxy-providers`.
 
 This is a redesigned provider-aware chain manager, not a copy of the existing card-click chain plugin. It treats chain configuration as explicit rules:
 
@@ -21,12 +21,13 @@ Runtime path:
 local -> front-node -> target-node -> website
 ```
 
-The existing chain-manager pattern copies provider nodes into `proxies`, but strategy groups that still use `use: [provider-id]` continue selecting provider originals. This plugin fixes that by:
+The existing chain-manager pattern mutates or copies provider nodes into `proxies`, which makes it unclear whether users are selecting the original node or the chained node. This plugin fixes that by:
 
 - loading provider nodes from subscription files;
 - creating new chained nodes by stable GUI proxy IDs, without mutating the original nodes;
-- inlining provider nodes into strategy-group `proxies`;
-- removing inlined providers from `proxy-providers` so mihomo can select the generated local nodes.
+- writing generated nodes to a local virtual subscription file;
+- adding a `链式出口` file-based `proxy-provider`;
+- attaching that virtual provider to related strategy groups.
 - showing rule previews and invalid-rule warnings in the UI.
 
 ## Official Plugin Shape
@@ -99,8 +100,7 @@ The storage format is:
 {
   "version": 1,
   "options": {
-    "inlineProviders": true,
-    "removeInlinedProviders": true
+    "attachVirtualProvider": true
   },
   "rules": [
     {
@@ -117,7 +117,7 @@ It can read legacy `{ "targetId": "viaId" }` mapping files from `data/third/prox
 
 ## Behavior
 
-For a group like:
+For a source group like:
 
 ```yaml
 proxy-groups:
@@ -129,19 +129,25 @@ proxy-groups:
 the generated config becomes:
 
 ```yaml
-proxies:
-  - name: node-a
-  - name: 链式出口 | node-a | 前置 front-proxy
-    dialer-proxy: front-proxy
+proxy-providers:
+  链式出口:
+    type: file
+    path: ../third/provider-chain-manager/<profile-id>-virtual.yaml
 
 proxy-groups:
   - name: openai
-    proxies:
-      - node-a
-      - 链式出口 | node-a | 前置 front-proxy
+    use:
+      - ID_8l1u8mi5
+      - 链式出口
 ```
 
-The provider is removed if it was fully inlined.
+The virtual provider file contains:
+
+```yaml
+proxies:
+  - name: 链式出口 | node-a | 前置 front-proxy
+    dialer-proxy: front-proxy
+```
 
 ## Chain Direction
 

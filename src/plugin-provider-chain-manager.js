@@ -1,9 +1,9 @@
 const PATH = 'data/third/provider-chain-manager'
 const LEGACY_PATH = 'data/third/proxy-chain-manager'
+const VIRTUAL_PROVIDER_NAME = '链式出口'
 
 const DEFAULT_OPTIONS = {
-  inlineProviders: true,
-  removeInlinedProviders: true,
+  attachVirtualProvider: true,
 }
 
 /* Trigger: on::generate */
@@ -14,30 +14,17 @@ const onGenerate = async (config, profile) => {
   const context = await collectContext(config, profile, subscribesStore)
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
-  applyRulesToProxies(config, context, activeRules)
-
-  if (options.inlineProviders) {
-    inlineProviderGroups(config, context)
-  }
-
-  if (options.removeInlinedProviders) {
-    removeInlinedProviders(config, context.inlinedProviderIds)
-  }
+  await createVirtualProvider(config, profile, context, activeRules, options)
 
   return config
 }
 
-function applyRulesToProxies(config, context, rules) {
+async function createVirtualProvider(config, profile, context, rules, options) {
   const localProxies = Array.isArray(config.proxies) ? Plugins.deepClone(config.proxies) : []
   const sourceProxies = [...localProxies, ...context.providerProxies]
-  const proxyMap = new Map()
-  const usedNames = new Set()
-
-  for (const proxy of sourceProxies) {
-    if (!proxy?.name) continue
-    proxyMap.set(proxy.name, proxy)
-    usedNames.add(proxy.name)
-  }
+  const usedNames = new Set(sourceProxies.map((proxy) => proxy?.name).filter(Boolean))
+  const chainProxies = []
+  const affectedProviderIds = new Set()
 
   for (const rule of rules) {
     const targetName = context.idToName[rule.targetId]
@@ -52,13 +39,32 @@ function applyRulesToProxies(config, context, rules) {
     chainProxy.name = chainName
     chainProxy['dialer-proxy'] = viaName
 
-    proxyMap.set(chainName, chainProxy)
+    chainProxies.push(chainProxy)
     usedNames.add(chainName)
     context.chainNameByTargetId[rule.targetId] = chainName
     context.chainNameByTargetName[targetName] = chainName
+
+    const sourceProviderId = context.providerIdByNodeName[targetName]
+    if (sourceProviderId) affectedProviderIds.add(sourceProviderId)
   }
 
-  config.proxies = [...proxyMap.values()]
+  if (chainProxies.length === 0) {
+    removeVirtualProvider(config)
+    return
+  }
+
+  const virtualPath = `${PATH}/${profile.id}-virtual.yaml`
+  await Plugins.WriteFile(virtualPath, Plugins.YAML.stringify({ proxies: chainProxies }))
+
+  config['proxy-providers'] = config['proxy-providers'] || {}
+  config['proxy-providers'][VIRTUAL_PROVIDER_NAME] = {
+    type: 'file',
+    path: `../third/provider-chain-manager/${profile.id}-virtual.yaml`,
+  }
+
+  if (options.attachVirtualProvider) {
+    attachVirtualProviderToGroups(config, affectedProviderIds)
+  }
 }
 
 async function collectContext(config, profile, subscribesStore) {
@@ -66,6 +72,7 @@ async function collectContext(config, profile, subscribesStore) {
   const nameToId = {}
   const providerProxies = []
   const providerNodes = {}
+  const providerIdByNodeName = {}
   const inlinedProviderIds = new Set()
   const chainNameByTargetId = {}
   const chainNameByTargetName = {}
@@ -97,10 +104,13 @@ async function collectContext(config, profile, subscribesStore) {
 
     providerNodes[providerId] = nodes
     providerProxies.push(...nodes)
+    for (const node of nodes) {
+      if (node?.name) providerIdByNodeName[node.name] = providerId
+    }
     sections.push({ id: providerId, name: sub.name, type: 'provider', nodes: metaNodes })
   }
 
-  return { idToName, nameToId, providerProxies, providerNodes, inlinedProviderIds, chainNameByTargetId, chainNameByTargetName, sections }
+  return { idToName, nameToId, providerProxies, providerNodes, providerIdByNodeName, inlinedProviderIds, chainNameByTargetId, chainNameByTargetName, sections }
 }
 
 function addKnown(idToName, nameToId, id, name) {
@@ -109,53 +119,25 @@ function addKnown(idToName, nameToId, id, name) {
   nameToId[name] = id
 }
 
-function inlineProviderGroups(config, context) {
+function attachVirtualProviderToGroups(config, affectedProviderIds) {
   const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : []
+  if (groups.length === 0) return
 
+  let attached = false
   for (const group of groups) {
-    if (!Array.isArray(group.use) || group.use.length === 0) continue
-
-    const explicit = Array.isArray(group.proxies) ? group.proxies : []
-    const expanded = []
-    const remainingUse = []
-
-    for (const providerId of group.use) {
-      const nodes = context.providerNodes[providerId]
-      if (!nodes) {
-        remainingUse.push(providerId)
-        continue
-      }
-
-      for (const proxy of nodes) {
-        if (!proxy?.name) continue
-        expanded.push(proxy.name)
-
-        const chainName = context.chainNameByTargetName[proxy.name]
-        if (chainName) expanded.push(chainName)
-      }
-      context.inlinedProviderIds.add(providerId)
+    if (!Array.isArray(group.use)) group.use = []
+    const usesAffectedProvider = group.use.some((providerId) => affectedProviderIds.has(providerId))
+    if (usesAffectedProvider) {
+      group.use = uniqueNames([...group.use, VIRTUAL_PROVIDER_NAME])
+      attached = true
     }
-
-    group.proxies = uniqueNames([...explicit, ...expanded])
-    group.use = remainingUse
   }
 
-  appendChainedNodesToGroups(config, context)
-}
-
-function appendChainedNodesToGroups(config, context) {
-  const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : []
-
+  if (attached) return
   for (const group of groups) {
-    if (!Array.isArray(group.proxies) || group.proxies.length === 0) continue
-
-    const next = []
-    for (const name of group.proxies) {
-      next.push(name)
-      const chainName = context.chainNameByTargetName[name]
-      if (chainName) next.push(chainName)
-    }
-    group.proxies = uniqueNames(next)
+    if (!['select', 'url-test', 'fallback', 'load-balance'].includes(group.type)) continue
+    if (!Array.isArray(group.use)) group.use = []
+    group.use = uniqueNames([...group.use, VIRTUAL_PROVIDER_NAME])
   }
 }
 
@@ -168,16 +150,9 @@ function makeChainProxyName(targetName, viaName, usedNames) {
   return `${base} #${index}`
 }
 
-function removeInlinedProviders(config, inlinedProviderIds) {
-  if (!config['proxy-providers'] || inlinedProviderIds.size === 0) return
-
-  for (const providerId of inlinedProviderIds) {
-    delete config['proxy-providers'][providerId]
-  }
-
-  if (Object.keys(config['proxy-providers']).length === 0) {
-    delete config['proxy-providers']
-  }
+function removeVirtualProvider(config) {
+  if (!config['proxy-providers']) return
+  delete config['proxy-providers'][VIRTUAL_PROVIDER_NAME]
 }
 
 function uniqueNames(names) {
@@ -435,12 +410,8 @@ async function showUI(profile) {
             </div>
             <div v-if="showAdvanced" style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
               <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; opacity: 0.85;">
-                <input type="checkbox" v-model="options.inlineProviders" style="cursor: pointer; margin: 0;" />
-                <span>展开订阅 provider 到策略组 proxies</span>
-              </label>
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; opacity: 0.85;">
-                <input type="checkbox" v-model="options.removeInlinedProviders" style="cursor: pointer; margin: 0;" />
-                <span>删除已展开的 proxy-providers</span>
+                <input type="checkbox" v-model="options.attachVirtualProvider" style="cursor: pointer; margin: 0;" />
+                <span>自动把“链式出口”虚拟订阅挂到相关策略组</span>
               </label>
             </div>
           </div>
