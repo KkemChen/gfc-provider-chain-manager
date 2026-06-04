@@ -246,7 +246,14 @@ function makeVirtualSubscribeEntry(chainProxies, descriptor) {
   }
 }
 
-async function clearVirtualArtifacts({ subscribesStore, profilesStore, clearProfileUses = false } = {}) {
+async function clearVirtualArtifacts({
+  subscribesStore,
+  profilesStore,
+  profileId,
+  clearProfileUses = false,
+  cleanupGeneratedConfig = false,
+  clearLegacyForProfile = false,
+} = {}) {
   const raw = await Plugins.ReadFile('data/subscribes.yaml').catch(() => '[]')
   const subscribes = Plugins.YAML.parse(raw || '[]') || []
   const virtualSubs = subscribes.filter(isVirtualSubscriptionEntry)
@@ -275,18 +282,81 @@ async function clearVirtualArtifacts({ subscribesStore, profilesStore, clearProf
     profilesStore.profiles.splice(0, profilesStore.profiles.length, ...profiles)
     await Plugins.WriteFile('data/profiles.yaml', Plugins.YAML.stringify(profiles))
   }
+
+  if (clearProfileUses) {
+    await cleanupProfilesFileVirtualReferences()
+  }
+
+  if (cleanupGeneratedConfig) {
+    await cleanupGeneratedMihomoConfig({ removeDialerProxy: true })
+  }
+
+  if (clearLegacyForProfile && profileId) {
+    await Promise.resolve(Plugins.RemoveFile(`${LEGACY_PATH}/${profileId}.json`)).catch(() => null)
+  }
+}
+
+async function cleanupProfilesFileVirtualReferences() {
+  const raw = await Plugins.ReadFile('data/profiles.yaml').catch(() => '')
+  if (!raw) return
+
+  const profiles = Plugins.YAML.parse(raw || '[]')
+  if (!Array.isArray(profiles)) return
+
+  let changed = false
+  for (const profile of profiles) {
+    changed = cleanupProfileVirtualReferences(profile) || changed
+  }
+
+  if (changed) {
+    await Plugins.WriteFile('data/profiles.yaml', Plugins.YAML.stringify(profiles))
+  }
+}
+
+async function cleanupGeneratedMihomoConfig({ removeDialerProxy = false } = {}) {
+  const raw = await Plugins.ReadFile('data/mihomo/config.yaml').catch(() => '')
+  if (!raw) return
+
+  const config = Plugins.YAML.parse(raw || '{}')
+  if (!config || typeof config !== 'object') return
+
+  const before = JSON.stringify(config)
+  cleanupVirtualProviderReferences(config)
+  cleanupVirtualProxyNodes(config)
+  if (removeDialerProxy) removeDialerProxyFields(config)
+
+  if (JSON.stringify(config) !== before) {
+    await Plugins.WriteFile('data/mihomo/config.yaml', Plugins.YAML.stringify(config))
+  }
+}
+
+function removeDialerProxyFields(config) {
+  const proxies = Array.isArray(config.proxies) ? config.proxies : []
+  for (const proxy of proxies) {
+    if (proxy && typeof proxy === 'object' && Object.prototype.hasOwnProperty.call(proxy, 'dialer-proxy')) {
+      delete proxy['dialer-proxy']
+    }
+  }
 }
 
 function cleanupProfileVirtualReferences(profile) {
+  let changed = false
+
   for (const group of profile?.proxyGroupsConfig || []) {
     if (Array.isArray(group.use)) {
-      group.use = group.use.filter((providerId) => !isVirtualProviderId(providerId))
+      const nextUse = group.use.filter((providerId) => !isVirtualProviderId(providerId))
+      if (nextUse.length !== group.use.length) changed = true
+      group.use = nextUse
     }
 
     if (Array.isArray(group.proxies)) {
-      group.proxies = group.proxies.filter((proxy) => !isVirtualProxyRef(proxy))
+      const nextProxies = group.proxies.filter((proxy) => !isVirtualProxyRef(proxy))
+      if (nextProxies.length !== group.proxies.length) changed = true
+      group.proxies = nextProxies
     }
   }
+
+  return changed
 }
 
 function isVirtualSubscriptionEntry(sub) {
@@ -995,12 +1065,19 @@ async function showUI(profile) {
       }
 
       async function clearGeneratedArtifacts() {
-        const confirmed = await Plugins.confirm('清空链式输出', '将删除“链式出口”本地订阅和策略组残留引用，但保留当前链式规则。确认继续？')
+        const confirmed = await Plugins.confirm('清空链式输出', '将删除“链式出口”本地订阅、策略组引用、当前生成配置里的历史链式字段，并清理旧链式插件对当前配置留下的映射；保留本插件的链路规则。确认继续？')
         if (!confirmed) return
 
         const profilesStore = Plugins.useProfilesStore()
-        await clearVirtualArtifacts({ subscribesStore, profilesStore, clearProfileUses: true })
-        Plugins.message.success('已清空链式输出；需要恢复时重新保存链路并应用配置')
+        await clearVirtualArtifacts({
+          subscribesStore,
+          profilesStore,
+          profileId: profile.id,
+          clearProfileUses: true,
+          cleanupGeneratedConfig: true,
+          clearLegacyForProfile: true,
+        })
+        Plugins.message.success('已深度清空链式输出；需要恢复时重新保存链路并应用配置')
       }
 
       return {
