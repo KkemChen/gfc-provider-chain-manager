@@ -71,10 +71,8 @@ async function ensurePluginRegistration({ notify = false } = {}) {
     }
   }
 
-  applyPluginStoreRegistration(updatedEntry)
-
   if (changed && notify) {
-    Plugins.message.success('已修复插件触发器注册；请重新应用一次配置')
+    Plugins.message.success('已修复插件触发器注册；如当前界面未立即生效，请重载 GUI 后重新应用配置')
   }
 
   return changed
@@ -133,23 +131,6 @@ function isCurrentPluginEntry(entry) {
   const path = String(entry?.path || '')
   return url.includes('KkemChen/gfc-provider-chain-manager')
     || path.includes('provider-chain-manager')
-}
-
-function applyPluginStoreRegistration(entry) {
-  try {
-    if (typeof Plugins.usePluginsStore !== 'function') return
-    const pluginsStore = Plugins.usePluginsStore()
-    if (!Array.isArray(pluginsStore?.plugins)) return
-
-    const index = pluginsStore.plugins.findIndex(isCurrentPluginEntry)
-    if (index >= 0) {
-      pluginsStore.plugins.splice(index, 1, { ...pluginsStore.plugins[index], ...entry })
-    } else {
-      pluginsStore.plugins.push(entry)
-    }
-  } catch (_) {
-    // Persisting plugins.yaml is enough; store patching is only for immediate in-memory use.
-  }
 }
 
 async function rebuildVirtualSubscriptionAfterSubscribe(subscription, updatedProxies) {
@@ -744,6 +725,30 @@ function ensureProxyServerNameserver(config) {
   ]
 }
 
+async function readCurrentKernelConfig() {
+  const raw = await Plugins.ReadFile('data/mihomo/config.yaml').catch(() => '')
+  if (!raw) return {}
+  return Plugins.YAML.parse(raw || '{}') || {}
+}
+
+function buildContextConfigForProfile(profile) {
+  const providerIds = uniqueNames(
+    (profile?.proxyGroupsConfig || [])
+      .flatMap((group) => Array.isArray(group?.use) ? group.use : [])
+      .filter((providerId) => !isVirtualProviderId(providerId))
+  )
+
+  const proxyProviders = {}
+  for (const providerId of providerIds) {
+    proxyProviders[providerId] = { type: 'file' }
+  }
+
+  return {
+    proxies: [],
+    'proxy-providers': proxyProviders,
+  }
+}
+
 async function refreshKernelProvider(config, providerId) {
   if (typeof Plugins.HttpPut !== 'function') return
 
@@ -832,7 +837,7 @@ const onRun = async () => {
 async function showUI(profile) {
   const { h, computed, ref } = Vue
   const subscribesStore = Plugins.useSubscribesStore()
-  const config = await Plugins.generateConfig(Plugins.deepClone(profile))
+  const config = buildContextConfigForProfile(profile)
   const context = await collectContext(config, profile, subscribesStore)
   const loaded = await loadState(profile.id)
 
@@ -1270,7 +1275,8 @@ async function showUI(profile) {
         }
 
         const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
-        await refreshKernelProvider(config, descriptor.id)
+        const kernelConfig = await readCurrentKernelConfig()
+        await refreshKernelProvider(kernelConfig, descriptor.id)
         Plugins.message.success('已保存，并刷新“链式出口”本地订阅')
       },
       afterClose() {
