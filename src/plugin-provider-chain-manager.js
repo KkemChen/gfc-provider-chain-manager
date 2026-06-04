@@ -3,14 +3,23 @@ const LEGACY_PATH = 'data/third/proxy-chain-manager'
 const PLUGIN_ID = 'gfc-provider-chain-manager'
 const VIRTUAL_SUBSCRIBE_BASE_ID = 'ID_provider_chain_virtual'
 const VIRTUAL_PROVIDER_NAME = '链式出口'
+const PLUGIN_DISPLAY_NAME = 'Provider 链式代理管理'
+const PLUGIN_SOURCE_URL = 'https://raw.githubusercontent.com/KkemChen/gfc-provider-chain-manager/main/src/plugin-provider-chain-manager.js'
+const PLUGIN_DESCRIPTION = '通过本地订阅生成 provider 友好的链式出口节点，支持清理残留和订阅刷新联动。'
+const REQUIRED_PLUGIN_TRIGGERS = ['on::manual', 'on::generate', 'on::subscribe']
 
 const DEFAULT_OPTIONS = {
   attachVirtualProvider: true,
   outputPaused: false,
 }
 
+const onInstall = async () => {
+  await ensurePluginRegistration()
+}
+
 /* Trigger: on::subscribe */
 const onSubscribe = async (proxies, subscription) => {
+  await ensurePluginRegistration()
   const updatedProxies = normalizeSubscribeProxies(proxies)
   await rebuildVirtualSubscriptionAfterSubscribe(subscription, updatedProxies).catch(() => null)
   setTimeout(() => rebuildVirtualSubscriptionAfterSubscribe(subscription).catch(() => null), 1200)
@@ -19,6 +28,7 @@ const onSubscribe = async (proxies, subscription) => {
 
 /* Trigger: on::generate */
 const onGenerate = async (config, profile) => {
+  await ensurePluginRegistration()
   const subscribesStore = Plugins.useSubscribesStore()
   const state = await loadState(profile.id)
   const options = { ...DEFAULT_OPTIONS, ...(state.options || {}) }
@@ -36,6 +46,110 @@ const onGenerate = async (config, profile) => {
   cleanupVirtualProxyNodes(config)
 
   return config
+}
+
+async function ensurePluginRegistration({ notify = false } = {}) {
+  const desiredEntry = normalizePluginEntry()
+  let updatedEntry = desiredEntry
+  let changed = false
+
+  const raw = await Plugins.ReadFile('data/plugins.yaml').catch(() => '')
+  const plugins = Plugins.YAML.parse(raw || '[]')
+  if (Array.isArray(plugins)) {
+    const index = plugins.findIndex(isCurrentPluginEntry)
+    if (index >= 0) {
+      updatedEntry = normalizePluginEntry(plugins[index])
+      changed = JSON.stringify(plugins[index]) !== JSON.stringify(updatedEntry)
+      if (changed) plugins[index] = updatedEntry
+    } else {
+      plugins.push(updatedEntry)
+      changed = true
+    }
+
+    if (changed) {
+      await Plugins.WriteFile('data/plugins.yaml', Plugins.YAML.stringify(plugins))
+    }
+  }
+
+  applyPluginStoreRegistration(updatedEntry)
+
+  if (changed && notify) {
+    Plugins.message.success('已修复插件触发器注册；请重新应用一次配置')
+  }
+
+  return changed
+}
+
+function normalizePluginEntry(entry = {}) {
+  const runtimePlugin = getRuntimePlugin()
+  const id = entry.id || runtimePlugin.id || 'plugin-provider-chain-manager'
+  const path = entry.path || runtimePlugin.path || `data/plugins/plugin-${id}.js`
+  const context = entry.context || {}
+
+  return {
+    ...entry,
+    id,
+    version: entry.version || 'v1.0.0',
+    name: PLUGIN_DISPLAY_NAME,
+    description: PLUGIN_DESCRIPTION,
+    tags: Array.isArray(entry.tags) ? entry.tags : [],
+    type: entry.type || 'Http',
+    url: entry.url || runtimePlugin.url || PLUGIN_SOURCE_URL,
+    status: entry.status ?? 0,
+    path,
+    triggers: uniqueNames([...(entry.triggers || []), ...REQUIRED_PLUGIN_TRIGGERS]),
+    hasUI: true,
+    menus: entry.menus || {},
+    context: {
+      profiles: {
+        ...(context.profiles || {}),
+        [PLUGIN_DISPLAY_NAME]: 'showUI',
+      },
+      subscriptions: context.subscriptions || {},
+      rulesets: context.rulesets || {},
+      plugins: context.plugins || {},
+      scheduledtasks: context.scheduledtasks || {},
+    },
+    configuration: Array.isArray(entry.configuration) ? entry.configuration : [],
+    disabled: entry.disabled ?? false,
+  }
+}
+
+function getRuntimePlugin() {
+  try {
+    if (typeof Plugin !== 'undefined' && Plugin) return Plugin
+  } catch (_) {
+    return {}
+  }
+  return {}
+}
+
+function isCurrentPluginEntry(entry) {
+  const runtimePlugin = getRuntimePlugin()
+  const runtimeId = runtimePlugin.id
+  if (runtimeId && entry?.id === runtimeId) return true
+
+  const url = String(entry?.url || '')
+  const path = String(entry?.path || '')
+  return url.includes('KkemChen/gfc-provider-chain-manager')
+    || path.includes('provider-chain-manager')
+}
+
+function applyPluginStoreRegistration(entry) {
+  try {
+    if (typeof Plugins.usePluginsStore !== 'function') return
+    const pluginsStore = Plugins.usePluginsStore()
+    if (!Array.isArray(pluginsStore?.plugins)) return
+
+    const index = pluginsStore.plugins.findIndex(isCurrentPluginEntry)
+    if (index >= 0) {
+      pluginsStore.plugins.splice(index, 1, { ...pluginsStore.plugins[index], ...entry })
+    } else {
+      pluginsStore.plugins.push(entry)
+    }
+  } catch (_) {
+    // Persisting plugins.yaml is enough; store patching is only for immediate in-memory use.
+  }
 }
 
 async function rebuildVirtualSubscriptionAfterSubscribe(subscription, updatedProxies) {
@@ -700,6 +814,7 @@ async function saveState(profileId, state) {
 
 /* Trigger: on::manual */
 const onRun = async () => {
+  await ensurePluginRegistration({ notify: true })
   const profilesStore = Plugins.useProfilesStore()
   if (!profilesStore.profiles.length) throw '请先创建一个配置'
 

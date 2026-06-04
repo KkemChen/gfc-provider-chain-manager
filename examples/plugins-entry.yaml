@@ -1,7 +1,7 @@
 - id: plugin-provider-chain-manager
   name: Provider 链式代理管理
-  version: v0.1.0
-  description: 将 proxy-provider 订阅节点内联为本地 proxies，并应用 dialer-proxy，避免策略组继续使用未链式的 provider 原始节点。
+  version: v1.0.0
+  description: 通过本地订阅生成 provider 友好的链式出口节点，支持清理残留和订阅刷新联动。
   tags:
     - 实用工具
     - 功能扩展

@@ -38,13 +38,17 @@ Common fields:
 
 - `name`, `version`, `description`, `tags`
 - `path`: plugin JS path under `data/plugins`
-- `triggers`: for this plugin, `on::manual` and `on::generate`
+- `triggers`: for this plugin, `on::manual`, `on::generate`, and `on::subscribe`
 - `context.profiles`: exposes the manual UI entry
 
 The plugin source exports trigger functions by defining:
 
 - `onGenerate(config, profile)`
+- `onSubscribe(proxies, subscription)`
 - `onRun()`
+- `onInstall()`
+
+The plugin also self-repairs its own registration when it is run manually. If GUI.for.Clash adds the HTTP plugin with only `on::manual`, the plugin rewrites `data/plugins.yaml` through the GUI plugin API and patches the in-memory plugin store so generation hooks are registered.
 
 Plugin runtime storage should live under `data/third/<plugin-name>`.
 
@@ -92,7 +96,7 @@ The manual UI is designed as a chain editor instead of a raw mapping table:
 - top path preview: `local -> front node -> outlet node -> website`;
 - right side: enabled chain rules as readable cards;
 - generated nodes are grouped under the real local subscription `链式出口`;
-- generated node names are `链式出口 | <outlet> | 前置 <front>`;
+- generated node names are short country-flag labels such as `🇸🇬 HY2 ← A2·AT`;
 - advanced generation behavior is collapsed by default.
 
 The storage format is:
