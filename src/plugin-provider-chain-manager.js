@@ -806,10 +806,32 @@ async function loadState(profileId) {
 
 function normalizeRules(state) {
   if (Array.isArray(state.rules)) {
-    return state.rules.filter((rule) => rule?.targetId && rule?.viaId)
+    return dedupeRules(state.rules.filter((rule) => rule?.targetId && rule?.viaId))
   }
 
   return []
+}
+
+function dedupeRules(rules) {
+  const result = []
+  const indexByKey = new Map()
+
+  for (const rule of rules || []) {
+    const key = ruleKey(rule)
+    if (!key) continue
+    if (indexByKey.has(key)) {
+      result[indexByKey.get(key)] = rule
+      continue
+    }
+    indexByKey.set(key, result.length)
+    result.push(rule)
+  }
+
+  return result
+}
+
+function ruleKey(rule) {
+  return rule?.targetId || rule?.targetName || ''
 }
 
 async function saveState(profileId, state) {
@@ -845,6 +867,7 @@ async function showUI(profile) {
   const rules = ref(normalizeRules(loaded))
   const draftTargetId = ref('')
   const draftViaId = ref('')
+  const editingRuleIndex = ref(-1)
   const query = ref('')
   const pickMode = ref('target')
   const showAdvanced = ref(false)
@@ -937,7 +960,10 @@ async function showUI(profile) {
           <div style="background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div style="font-weight: bold; font-size: 15px;">链路预览</div>
-              <Button type="primary" style="height: 28px; padding: 0 12px; font-size: 12px;" @click="addRule">保存链路</Button>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <Button v-if="editingRuleIndex >= 0" style="height: 28px; padding: 0 10px; font-size: 12px;" @click="cancelEdit">取消编辑</Button>
+                <Button type="primary" style="height: 28px; padding: 0 12px; font-size: 12px;" @click="addRule">{{ editingRuleIndex >= 0 ? '更新链路' : '保存链路' }}</Button>
+              </div>
             </div>
             <div style="border: 1px solid var(--border-color); border-radius: 8px; background: rgba(128, 128, 128, 0.02); padding: 12px 14px;">
               <div style="position: relative; display: flex; flex-direction: column; gap: 8px; padding-left: 12px;">
@@ -1013,7 +1039,7 @@ async function showUI(profile) {
                       <span>启用</span>
                     </label>
                     <div style="display: flex; gap: 4px;">
-                      <Button size="small" style="height: 24px; padding: 0 8px; font-size: 11px;" @click="editRule(rule)">编辑</Button>
+                      <Button size="small" style="height: 24px; padding: 0 8px; font-size: 11px;" @click="editRule(rule, index)">编辑</Button>
                       <Button size="small" style="height: 24px; padding: 0 8px; font-size: 11px; color: #d4380d; border-color: rgba(212,56,13,0.15);" @click="removeRule(index)">删除</Button>
                     </div>
                   </div>
@@ -1165,6 +1191,20 @@ async function showUI(profile) {
 
         const targetName = context.idToName[draftTargetId.value] || ''
         const viaName = context.idToName[draftViaId.value] || ''
+        const editingIndex = editingRuleIndex.value
+        if (editingIndex >= 0 && rules.value[editingIndex]) {
+          rules.value.splice(editingIndex, 1, {
+            ...rules.value[editingIndex],
+            targetId: draftTargetId.value,
+            viaId: draftViaId.value,
+            targetName,
+            viaName,
+            enabled: true,
+          })
+          clearDraft()
+          return
+        }
+
         const existing = rules.value.find((rule) => rule.targetId === draftTargetId.value || rule.targetName === targetName)
         if (existing) {
           existing.targetId = draftTargetId.value
@@ -1175,16 +1215,34 @@ async function showUI(profile) {
         } else {
           rules.value.push({ targetId: draftTargetId.value, viaId: draftViaId.value, targetName, viaName, enabled: true, note: '' })
         }
+        clearDraft()
       }
 
-      function editRule(rule) {
+      function editRule(rule, index) {
         draftTargetId.value = rule.targetId
         draftViaId.value = rule.viaId
+        editingRuleIndex.value = index
         pickMode.value = 'target'
       }
 
       function removeRule(index) {
         rules.value.splice(index, 1)
+        if (editingRuleIndex.value === index) {
+          clearDraft()
+        } else if (editingRuleIndex.value > index) {
+          editingRuleIndex.value -= 1
+        }
+      }
+
+      function cancelEdit() {
+        clearDraft()
+      }
+
+      function clearDraft() {
+        draftTargetId.value = ''
+        draftViaId.value = ''
+        editingRuleIndex.value = -1
+        pickMode.value = 'target'
       }
 
       function syncEnabled(index, enabled) {
@@ -1225,6 +1283,7 @@ async function showUI(profile) {
         enabledRuleCount,
         draftTargetId,
         draftViaId,
+        editingRuleIndex,
         query,
         pickMode,
         showAdvanced,
@@ -1239,6 +1298,7 @@ async function showUI(profile) {
         chooseNode,
         addRule,
         editRule,
+        cancelEdit,
         removeRule,
         syncEnabled,
         clearGeneratedArtifacts,
@@ -1252,6 +1312,7 @@ async function showUI(profile) {
       width: '92',
       height: '92',
       async onOk() {
+        rules.value = dedupeRules(rules.value)
         const activeRules = rules.value.filter((rule) => rule.enabled !== false)
         const { chainProxies } = buildChainProxies(config, context, activeRules)
         const nextOptions = { ...options.value, outputPaused: false }
