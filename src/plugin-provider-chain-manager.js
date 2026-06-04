@@ -424,7 +424,6 @@ function normalizeSubscribeProxies(proxies) {
 
 function isValidChainProxy(proxy) {
   if (!proxy?.name || !proxy?.type || !proxy?.['dialer-proxy']) return false
-  if (isVirtualChainProxy(proxy) && !proxy.name.startsWith('🔗 ')) return false
   if (['direct', 'reject', 'reject-drop'].includes(String(proxy.type).toLowerCase())) return false
   if (!proxy.server && !['wireguard'].includes(String(proxy.type).toLowerCase())) return false
   return true
