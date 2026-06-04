@@ -382,7 +382,10 @@ function attachVirtualProviderToGroups(config, affectedProviderIds, providerId) 
 }
 
 function makeChainProxyName(targetName, viaName, usedNames) {
-  const base = `🔗 ${compactNodeName(targetName)} via ${compactNodeName(viaName)}`
+  const target = compactNodeName(targetName)
+  const via = compactNodeName(viaName)
+  const viaText = target.country === via.country ? via.route : `${via.emoji} ${via.route}`
+  const base = `${target.emoji} ${target.label} ← ${viaText}`
   if (!usedNames.has(base)) return base
 
   let index = 2
@@ -396,7 +399,11 @@ function isVirtualChainProxy(proxy) {
 
 function isVirtualChainName(name) {
   return typeof name === 'string'
-    && (name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `) || name.startsWith('🔗 '))
+    && (
+      name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `)
+      || name.startsWith('🔗 ')
+      || /^(?:[\u{1F1E6}-\u{1F1FF}]{2}|🌐)\s.+\s←\s.+/u.test(name)
+    )
 }
 
 function isVirtualProxyRef(proxy) {
@@ -425,62 +432,84 @@ function isValidChainProxy(proxy) {
 
 function compactNodeName(name) {
   const value = String(name || '').trim()
-  if (!value) return ''
+  if (!value) return { emoji: '🌐', country: '', label: 'Node', route: 'Node' }
 
   const xavierTrojan = value.match(/^trojan-outlet-(\d+)-(.+?)-trojan$/i)
-  if (xavierTrojan) return `${xavierTrojan[2]} Trojan:${xavierTrojan[1]}`
+  if (xavierTrojan) return { emoji: '🇸🇬', country: 'SG', label: 'Trojan', route: 'Trojan' }
 
   const xavierHy2 = value.match(/^kkem-(.+)$/i)
-  if (xavierHy2) return `${xavierHy2[1]} HY2`
+  if (xavierHy2) return { emoji: '🇸🇬', country: 'SG', label: 'HY2', route: 'HY2' }
 
   const airportNode = value.match(/^(.+?)←([A-Z]\d+)·(?:[\d.]+倍·)?([^#]+)(?:#(.+))?$/)
   if (airportNode) {
-    return [
-      compactRegionName(airportNode[1]),
-      airportNode[2],
-      compactProtocolName(airportNode[3]),
-    ].filter(Boolean).join(' ')
+    const region = compactRegionName(airportNode[1])
+    const protocol = compactProtocolName(airportNode[3])
+    const route = [airportNode[2], protocol].filter(Boolean).join('·')
+    return { emoji: region.emoji, country: region.country, label: route, route }
   }
 
   const webshare = value.match(/^Webshare\s+(.+)$/i)
-  if (webshare) return `Webshare ${webshare[1].replace(/\s+/g, '-')}`
+  if (webshare) {
+    const region = compactRegionName(webshare[1])
+    return { emoji: region.emoji, country: region.country, label: 'Socks', route: 'Socks' }
+  }
 
-  return value
+  const fallback = value
     .replace(/^链式出口\s*\|\s*/u, '')
     .replace(/\s+/g, ' ')
-    .slice(0, 42)
+    .slice(0, 12)
+  return { emoji: '🌐', country: '', label: fallback, route: fallback }
 }
 
 function compactRegionName(name) {
   const regions = [
-    ['新加坡', 'SG'],
-    ['美国', 'US'],
-    ['香港', 'HK'],
-    ['日本', 'JP'],
-    ['台湾', 'TW'],
-    ['澳洲', 'AU'],
-    ['澳大利亚', 'AU'],
-    ['印度', 'IN'],
-    ['英国', 'UK'],
-    ['俄罗斯', 'RU'],
-    ['马来西亚', 'MY'],
+    ['新加坡', 'SG', '🇸🇬'],
+    ['Singapore', 'SG', '🇸🇬'],
+    ['美国', 'US', '🇺🇸'],
+    ['United States', 'US', '🇺🇸'],
+    ['US', 'US', '🇺🇸'],
+    ['香港', 'HK', '🇭🇰'],
+    ['日本', 'JP', '🇯🇵'],
+    ['台湾', 'TW', '🇹🇼'],
+    ['澳洲', 'AU', '🇦🇺'],
+    ['澳大利亚', 'AU', '🇦🇺'],
+    ['Australia', 'AU', '🇦🇺'],
+    ['印度', 'IN', '🇮🇳'],
+    ['英国', 'UK', '🇬🇧'],
+    ['俄罗斯', 'RU', '🇷🇺'],
+    ['马来西亚', 'MY', '🇲🇾'],
   ]
 
-  let result = String(name || '')
-  for (const [from, to] of regions) {
-    result = result.replace(from, to)
+  const value = String(name || '')
+  for (const [pattern, country, emoji] of regions) {
+    if (matchesRegion(value, pattern)) {
+      return { country, emoji }
+    }
   }
-  return result.replace(/WARP/i, 'WARP')
+  return { country: '', emoji: '🌐' }
+}
+
+function matchesRegion(value, pattern) {
+  const text = String(value || '')
+  const token = String(pattern || '')
+  if (/^[A-Z]{2,3}$/.test(token)) {
+    return new RegExp(`(^|[^A-Za-z])${escapeRegExp(token)}([^A-Za-z]|$)`, 'i').test(text)
+  }
+  return text.toLowerCase().includes(token.toLowerCase())
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function compactProtocolName(protocol) {
   const value = String(protocol || '').trim()
   const normalized = value.toLowerCase()
   if (normalized === 'hysteria2' || normalized === 'hy2') return 'HY2'
-  if (normalized === 'anytls') return 'AnyTLS'
-  if (normalized === 'vision') return 'Vision'
+  if (normalized === 'anytls') return 'AT'
+  if (normalized === 'vision') return 'V'
   if (normalized === 'trojan') return 'Trojan'
-  if (normalized === 'socks5') return 'Socks5'
+  if (normalized === 'socks5') return 'Socks'
   return value
 }
 
