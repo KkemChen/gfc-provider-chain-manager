@@ -33,6 +33,7 @@ const onGenerate = async (config, profile) => {
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
   await createVirtualSubscription(config, context, activeRules, options, subscribesStore)
+  cleanupVirtualProxyNodes(config)
 
   return config
 }
@@ -233,7 +234,7 @@ function makeVirtualSubscribeEntry(chainProxies, descriptor) {
     url: '',
     website: '',
     path: descriptor.path,
-    include: '',
+    include: '^$',
     exclude: '',
     includeProtocol: '',
     excludeProtocol: '',
