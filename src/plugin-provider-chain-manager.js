@@ -6,6 +6,7 @@ const VIRTUAL_PROVIDER_NAME = '链式出口'
 
 const DEFAULT_OPTIONS = {
   attachVirtualProvider: true,
+  outputPaused: false,
 }
 
 /* Trigger: on::subscribe */
@@ -23,6 +24,11 @@ const onGenerate = async (config, profile) => {
   const options = { ...DEFAULT_OPTIONS, ...(state.options || {}) }
   cleanupVirtualProviderReferences(config)
   cleanupVirtualProxyNodes(config)
+  if (options.outputPaused) {
+    await clearVirtualArtifacts({ subscribesStore })
+    return config
+  }
+
   const context = await collectContext(config, profile, subscribesStore)
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
@@ -1065,10 +1071,17 @@ async function showUI(profile) {
       }
 
       async function clearGeneratedArtifacts() {
-        const confirmed = await Plugins.confirm('清空链式输出', '将删除“链式出口”本地订阅、策略组引用、当前生成配置里的历史链式字段，并清理旧链式插件对当前配置留下的映射；保留本插件的链路规则。确认继续？')
+        const confirmed = await Plugins.confirm('清空链式输出', '将删除“链式出口”本地订阅、策略组引用、当前生成配置里的历史链式字段，并暂停链式输出；保留链路规则，重新保存即可恢复。确认继续？')
         if (!confirmed) return
 
         const profilesStore = Plugins.useProfilesStore()
+        const nextOptions = { ...options.value, outputPaused: true }
+        options.value = nextOptions
+        await saveState(profile.id, {
+          version: 1,
+          options: nextOptions,
+          rules: rules.value,
+        })
         await clearVirtualArtifacts({
           subscribesStore,
           profilesStore,
@@ -1077,7 +1090,7 @@ async function showUI(profile) {
           cleanupGeneratedConfig: true,
           clearLegacyForProfile: true,
         })
-        Plugins.message.success('已深度清空链式输出；需要恢复时重新保存链路并应用配置')
+        Plugins.message.success('已深度清空并暂停链式输出；重新保存链路即可恢复')
       }
 
       return {
@@ -1120,12 +1133,27 @@ async function showUI(profile) {
       async onOk() {
         const activeRules = rules.value.filter((rule) => rule.enabled !== false)
         const { chainProxies } = buildChainProxies(config, context, activeRules)
-        const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
+        const nextOptions = { ...options.value, outputPaused: false }
+        options.value = nextOptions
         await saveState(profile.id, {
           version: 1,
-          options: options.value,
+          options: nextOptions,
           rules: rules.value,
         })
+
+        if (chainProxies.length === 0) {
+          const profilesStore = Plugins.useProfilesStore()
+          await clearVirtualArtifacts({
+            subscribesStore,
+            profilesStore,
+            clearProfileUses: true,
+            cleanupGeneratedConfig: true,
+          })
+          Plugins.message.success('已保存；当前没有有效链路，已清空“链式出口”订阅')
+          return
+        }
+
+        const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
         await refreshKernelProvider(config, descriptor.id)
         Plugins.message.success('已保存，并刷新“链式出口”本地订阅')
       },
