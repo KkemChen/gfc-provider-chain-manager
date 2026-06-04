@@ -10,7 +10,9 @@ const DEFAULT_OPTIONS = {
 
 /* Trigger: on::subscribe */
 const onSubscribe = async (proxies, subscription) => {
-  await rebuildVirtualSubscriptionAfterSubscribe(subscription).catch(() => null)
+  const updatedProxies = normalizeSubscribeProxies(proxies)
+  await rebuildVirtualSubscriptionAfterSubscribe(subscription, updatedProxies).catch(() => null)
+  setTimeout(() => rebuildVirtualSubscriptionAfterSubscribe(subscription).catch(() => null), 1200)
   return proxies
 }
 
@@ -19,6 +21,8 @@ const onGenerate = async (config, profile) => {
   const subscribesStore = Plugins.useSubscribesStore()
   const state = await loadState(profile.id)
   const options = { ...DEFAULT_OPTIONS, ...(state.options || {}) }
+  cleanupVirtualProviderReferences(config)
+  cleanupVirtualProxyNodes(config)
   const context = await collectContext(config, profile, subscribesStore)
   const activeRules = normalizeRules(state).filter((rule) => rule.enabled !== false)
 
@@ -27,12 +31,15 @@ const onGenerate = async (config, profile) => {
   return config
 }
 
-async function rebuildVirtualSubscriptionAfterSubscribe(subscription) {
+async function rebuildVirtualSubscriptionAfterSubscribe(subscription, updatedProxies) {
   if (subscription?.id && isVirtualProviderId(subscription.id)) return
 
   const profilesStore = Plugins.useProfilesStore()
   const subscribesStore = Plugins.useSubscribesStore()
   const profiles = Array.isArray(profilesStore.profiles) ? profilesStore.profiles : []
+  const overrides = subscription?.id && Array.isArray(updatedProxies)
+    ? { [subscription.id]: updatedProxies }
+    : {}
 
   for (const profile of profiles) {
     const state = await loadState(profile.id)
@@ -40,19 +47,24 @@ async function rebuildVirtualSubscriptionAfterSubscribe(subscription) {
     if (activeRules.length === 0) continue
 
     const config = await Plugins.generateConfig(Plugins.deepClone(profile))
-    const context = await collectContext(config, profile, subscribesStore)
+    cleanupVirtualProviderReferences(config)
+    cleanupVirtualProxyNodes(config)
+    const context = await collectContext(config, profile, subscribesStore, overrides)
     if (subscription?.id && !isSubscriptionUsedByRules(subscription.id, activeRules, context)) continue
 
     const { chainProxies } = buildChainProxies(config, context, activeRules)
-    const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
-    await refreshKernelProvider(config, descriptor.id)
+    if (chainProxies.length === 0) {
+      await clearVirtualArtifacts({ subscribesStore })
+    } else {
+      const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
+      await refreshKernelProvider(config, descriptor.id)
+    }
   }
 }
 
 function isSubscriptionUsedByRules(subscriptionId, rules, context) {
   return rules.some((rule) => {
-    const targetName = context.idToName[rule.targetId]
-    const viaName = context.idToName[rule.viaId]
+    const { targetName, viaName } = resolveRuleNames(rule, context)
     return context.providerIdByNodeName[targetName] === subscriptionId
       || context.providerIdByNodeName[viaName] === subscriptionId
   })
@@ -60,13 +72,15 @@ function isSubscriptionUsedByRules(subscriptionId, rules, context) {
 
 async function createVirtualSubscription(config, context, rules, options, subscribesStore) {
   const { chainProxies, affectedProviderIds } = buildChainProxies(config, context, rules)
-  const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
   cleanupVirtualProviderReferences(config)
+  cleanupVirtualProxyNodes(config)
 
   if (chainProxies.length === 0) {
+    await clearVirtualArtifacts({ subscribesStore })
     return
   }
 
+  const descriptor = await writeVirtualSubscribe(chainProxies, subscribesStore)
   config['proxy-providers'] = config['proxy-providers'] || {}
   config['proxy-providers'][descriptor.id] = {
     type: 'file',
@@ -83,15 +97,15 @@ function buildChainProxies(config, context, rules) {
   const localProxies = Array.isArray(config.proxies)
     ? Plugins.deepClone(config.proxies).filter((proxy) => !isVirtualChainProxy(proxy))
     : []
-  const sourceProxies = [...localProxies, ...context.providerProxies]
+  const sourceProxies = [...localProxies, ...context.providerProxies].filter((proxy) => !isVirtualChainProxy(proxy))
   const usedNames = new Set(sourceProxies.map((proxy) => proxy?.name).filter(Boolean))
   const chainProxies = []
   const affectedProviderIds = new Set()
 
   for (const rule of rules) {
-    const targetName = context.idToName[rule.targetId]
-    const viaName = context.idToName[rule.viaId]
+    const { targetName, viaName } = resolveRuleNames(rule, context)
     if (!targetName || !viaName || targetName === viaName) continue
+    if (isVirtualChainName(targetName) || isVirtualChainName(viaName)) continue
 
     const sourceProxy = sourceProxies.find((proxy) => proxy?.name === targetName)
     if (!sourceProxy) continue
@@ -100,6 +114,7 @@ function buildChainProxies(config, context, rules) {
     const chainName = makeChainProxyName(targetName, viaName, usedNames)
     chainProxy.name = chainName
     chainProxy['dialer-proxy'] = viaName
+    if (!isValidChainProxy(chainProxy)) continue
 
     chainProxies.push(chainProxy)
     usedNames.add(chainName)
@@ -113,22 +128,30 @@ function buildChainProxies(config, context, rules) {
   return { chainProxies, affectedProviderIds }
 }
 
+function resolveRuleNames(rule, context) {
+  return {
+    targetName: context.idToName[rule.targetId] || rule.targetName || '',
+    viaName: context.idToName[rule.viaId] || rule.viaName || '',
+  }
+}
+
 async function writeVirtualSubscribe(chainProxies, subscribesStore) {
   const raw = await Plugins.ReadFile('data/subscribes.yaml').catch(() => '[]')
   const subscribes = Plugins.YAML.parse(raw || '[]') || []
   const descriptor = resolveVirtualSubscribeDescriptor(subscribes, subscribesStore)
   const entry = makeVirtualSubscribeEntry(chainProxies, descriptor)
-  const index = subscribes.findIndex((sub) => sub?.id === descriptor.id)
+  const cleanedSubscribes = subscribes.filter((sub) => !isVirtualSubscriptionEntry(sub) || sub?.id === descriptor.id)
+  const index = cleanedSubscribes.findIndex((sub) => sub?.id === descriptor.id)
 
   await Plugins.WriteFile(descriptor.path, Plugins.YAML.stringify({ proxies: chainProxies }))
 
   if (index >= 0) {
-    subscribes[index] = { ...subscribes[index], ...entry }
+    cleanedSubscribes[index] = { ...cleanedSubscribes[index], ...entry }
   } else {
-    subscribes.push(entry)
+    cleanedSubscribes.push(entry)
   }
 
-  await Plugins.WriteFile('data/subscribes.yaml', Plugins.YAML.stringify(subscribes))
+  await Plugins.WriteFile('data/subscribes.yaml', Plugins.YAML.stringify(cleanedSubscribes))
   refreshVirtualSubscribeStore(subscribesStore, entry)
   return descriptor
 }
@@ -136,15 +159,16 @@ async function writeVirtualSubscribe(chainProxies, subscribesStore) {
 function refreshVirtualSubscribeStore(subscribesStore, entry) {
   if (!subscribesStore || !Array.isArray(subscribesStore.subscribes)) return
 
-  const currentIndex = subscribesStore.subscribes.findIndex((sub) => sub?.id === entry.id)
+  const cleaned = subscribesStore.subscribes.filter((sub) => !isVirtualSubscriptionEntry(sub) || sub?.id === entry.id)
+  const currentIndex = cleaned.findIndex((sub) => sub?.id === entry.id)
   if (currentIndex >= 0) {
-    const next = subscribesStore.subscribes.slice()
+    const next = cleaned.slice()
     next.splice(currentIndex, 1, { ...next[currentIndex], ...entry })
     subscribesStore.subscribes = next
     return
   }
 
-  subscribesStore.subscribes = [...subscribesStore.subscribes, entry]
+  subscribesStore.subscribes = [...cleaned, entry]
 }
 
 function resolveVirtualSubscribeDescriptor(subscribes, subscribesStore) {
@@ -222,7 +246,58 @@ function makeVirtualSubscribeEntry(chainProxies, descriptor) {
   }
 }
 
-async function collectContext(config, profile, subscribesStore) {
+async function clearVirtualArtifacts({ subscribesStore, profilesStore, clearProfileUses = false } = {}) {
+  const raw = await Plugins.ReadFile('data/subscribes.yaml').catch(() => '[]')
+  const subscribes = Plugins.YAML.parse(raw || '[]') || []
+  const virtualSubs = subscribes.filter(isVirtualSubscriptionEntry)
+  const virtualIds = uniqueNames([
+    VIRTUAL_SUBSCRIBE_BASE_ID,
+    ...virtualSubs.map((sub) => sub?.id),
+    ...Array.from({ length: 10 }, (_, index) => `${VIRTUAL_SUBSCRIBE_BASE_ID}_${index + 2}`),
+  ])
+
+  const nextSubscribes = subscribes.filter((sub) => !isVirtualSubscriptionEntry(sub))
+  if (nextSubscribes.length !== subscribes.length) {
+    await Plugins.WriteFile('data/subscribes.yaml', Plugins.YAML.stringify(nextSubscribes))
+  }
+
+  for (const id of virtualIds) {
+    await Promise.resolve(Plugins.RemoveFile(makeVirtualSubscribePath(id))).catch(() => null)
+  }
+
+  if (subscribesStore && Array.isArray(subscribesStore.subscribes)) {
+    subscribesStore.subscribes = subscribesStore.subscribes.filter((sub) => !isVirtualSubscriptionEntry(sub))
+  }
+
+  if (clearProfileUses && profilesStore && Array.isArray(profilesStore.profiles)) {
+    const profiles = Plugins.deepClone(profilesStore.profiles)
+    for (const profile of profiles) cleanupProfileVirtualReferences(profile)
+    profilesStore.profiles.splice(0, profilesStore.profiles.length, ...profiles)
+    await Plugins.WriteFile('data/profiles.yaml', Plugins.YAML.stringify(profiles))
+  }
+}
+
+function cleanupProfileVirtualReferences(profile) {
+  for (const group of profile?.proxyGroupsConfig || []) {
+    if (Array.isArray(group.use)) {
+      group.use = group.use.filter((providerId) => !isVirtualProviderId(providerId))
+    }
+
+    if (Array.isArray(group.proxies)) {
+      group.proxies = group.proxies.filter((proxy) => !isVirtualProxyRef(proxy))
+    }
+  }
+}
+
+function isVirtualSubscriptionEntry(sub) {
+  if (!sub) return false
+  return isVirtualProviderId(sub.id)
+    || isManagedVirtualSubscribe(sub)
+    || sub.name === VIRTUAL_PROVIDER_NAME
+    || String(sub.path || '').startsWith(`data/subscribes/${VIRTUAL_SUBSCRIBE_BASE_ID}`)
+}
+
+async function collectContext(config, profile, subscribesStore, providerProxyOverrides = {}) {
   const idToName = {}
   const nameToId = {}
   const providerProxies = []
@@ -244,18 +319,22 @@ async function collectContext(config, profile, subscribesStore) {
 
   const providers = config['proxy-providers'] || {}
   for (const providerId of Object.keys(providers)) {
+    if (isVirtualProviderId(providerId)) continue
+
     const sub = subscribesStore.getSubscribeById(providerId)
     if (!sub) continue
+    if (isManagedVirtualSubscribe(sub)) continue
 
-    const metaNodes = Array.isArray(sub.proxies) ? sub.proxies : []
+    const overrideNodes = normalizeSubscribeProxies(providerProxyOverrides[providerId])
+    const metaNodes = Array.isArray(sub.proxies)
+      ? sub.proxies.filter((proxy) => !isVirtualChainProxy(proxy))
+      : []
     for (const proxy of metaNodes) {
       if (!proxy?.id || !proxy?.name) continue
       addKnown(idToName, nameToId, proxy.id, proxy.name)
     }
 
-    const content = await Plugins.ReadFile(sub.path).catch(() => '{"proxies":[]}')
-    const parsed = Plugins.YAML.parse(content || '{"proxies":[]}')
-    const nodes = Array.isArray(parsed?.proxies) ? Plugins.deepClone(parsed.proxies) : []
+    const nodes = overrideNodes || await readProviderNodes(sub.path)
 
     providerNodes[providerId] = nodes
     providerProxies.push(...nodes)
@@ -266,6 +345,12 @@ async function collectContext(config, profile, subscribesStore) {
   }
 
   return { idToName, nameToId, providerProxies, providerNodes, providerIdByNodeName, inlinedProviderIds, chainNameByTargetId, chainNameByTargetName, sections }
+}
+
+async function readProviderNodes(path) {
+  const content = await Plugins.ReadFile(path).catch(() => '{"proxies":[]}')
+  const parsed = Plugins.YAML.parse(content || '{"proxies":[]}')
+  return normalizeSubscribeProxies(parsed?.proxies) || []
 }
 
 function addKnown(idToName, nameToId, id, name) {
@@ -306,8 +391,36 @@ function makeChainProxyName(targetName, viaName, usedNames) {
 }
 
 function isVirtualChainProxy(proxy) {
-  return typeof proxy?.name === 'string'
-    && (proxy.name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `) || proxy.name.startsWith('🔗 '))
+  return isVirtualChainName(proxy?.name)
+}
+
+function isVirtualChainName(name) {
+  return typeof name === 'string'
+    && (name.startsWith(`${VIRTUAL_PROVIDER_NAME} | `) || name.startsWith('🔗 '))
+}
+
+function isVirtualProxyRef(proxy) {
+  if (typeof proxy === 'string') return isVirtualChainName(proxy)
+  return isVirtualChainName(proxy?.name) || isVirtualProviderId(proxy?.id)
+}
+
+function normalizeSubscribeProxies(proxies) {
+  if (!Array.isArray(proxies)) return null
+
+  const normalized = proxies
+    .filter((proxy) => proxy && typeof proxy === 'object' && !proxy.base64 && proxy.name && proxy.type)
+    .filter((proxy) => !isVirtualChainProxy(proxy))
+    .map((proxy) => Plugins.deepClone(proxy))
+
+  return normalized.length > 0 ? normalized : null
+}
+
+function isValidChainProxy(proxy) {
+  if (!proxy?.name || !proxy?.type || !proxy?.['dialer-proxy']) return false
+  if (isVirtualChainProxy(proxy) && !proxy.name.startsWith('🔗 ')) return false
+  if (['direct', 'reject', 'reject-drop'].includes(String(proxy.type).toLowerCase())) return false
+  if (!proxy.server && !['wireguard'].includes(String(proxy.type).toLowerCase())) return false
+  return true
 }
 
 function compactNodeName(name) {
@@ -382,6 +495,19 @@ function cleanupVirtualProviderReferences(config) {
   for (const group of groups) {
     if (!Array.isArray(group.use)) continue
     group.use = group.use.filter((providerId) => !isVirtualProviderId(providerId))
+  }
+}
+
+function cleanupVirtualProxyNodes(config) {
+  if (Array.isArray(config.proxies)) {
+    config.proxies = config.proxies.filter((proxy) => !isVirtualChainProxy(proxy))
+  }
+
+  const groups = Array.isArray(config['proxy-groups']) ? config['proxy-groups'] : []
+  for (const group of groups) {
+    if (Array.isArray(group.proxies)) {
+      group.proxies = group.proxies.filter((proxy) => !isVirtualProxyRef(proxy))
+    }
   }
 }
 
@@ -518,16 +644,17 @@ async function showUI(profile) {
   })
 
   const ruleViews = computed(() => rules.value.map((rule) => {
-    const targetName = context.idToName[rule.targetId] || rule.targetId
-    const viaName = context.idToName[rule.viaId] || rule.viaId
+    const { targetName, viaName } = resolveRuleNames(rule, context)
+    const displayTargetName = targetName || rule.targetId
+    const displayViaName = viaName || rule.viaId
     const chainName = makeChainProxyName(targetName, viaName, new Set(Object.values(context.idToName)))
     return {
       ...rule,
-      targetName,
-      viaName,
+      targetName: displayTargetName,
+      viaName: displayViaName,
       chainName,
-      preview: `本地 -> ${viaName} -> ${targetName} -> 目标网站`,
-      invalid: rule.targetId === rule.viaId || !context.idToName[rule.targetId] || !context.idToName[rule.viaId],
+      preview: `本地 -> ${displayViaName} -> ${displayTargetName} -> 目标网站`,
+      invalid: rule.targetId === rule.viaId || !targetName || !viaName,
     }
   }))
 
@@ -681,6 +808,10 @@ async function showUI(profile) {
                 <input type="checkbox" v-model="options.attachVirtualProvider" style="cursor: pointer; margin: 0;" />
                 <span>自动把“链式出口”本地订阅挂到相关策略组</span>
               </label>
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 4px;">
+                <div style="opacity: 0.62; line-height: 1.4;">清理生成物和策略组残留，保留当前链式规则。</div>
+                <Button size="small" style="height: 26px; padding: 0 10px; color: #d4380d; border-color: rgba(212,56,13,0.22);" @click="clearGeneratedArtifacts">清空链式输出</Button>
+              </div>
             </div>
           </div>
         </section>
@@ -807,12 +938,17 @@ async function showUI(profile) {
           return
         }
 
-        const existing = rules.value.find((rule) => rule.targetId === draftTargetId.value)
+        const targetName = context.idToName[draftTargetId.value] || ''
+        const viaName = context.idToName[draftViaId.value] || ''
+        const existing = rules.value.find((rule) => rule.targetId === draftTargetId.value || rule.targetName === targetName)
         if (existing) {
+          existing.targetId = draftTargetId.value
           existing.viaId = draftViaId.value
+          existing.targetName = targetName
+          existing.viaName = viaName
           existing.enabled = true
         } else {
-          rules.value.push({ targetId: draftTargetId.value, viaId: draftViaId.value, enabled: true, note: '' })
+          rules.value.push({ targetId: draftTargetId.value, viaId: draftViaId.value, targetName, viaName, enabled: true, note: '' })
         }
       }
 
@@ -828,6 +964,15 @@ async function showUI(profile) {
 
       function syncEnabled(index, enabled) {
         rules.value[index].enabled = enabled
+      }
+
+      async function clearGeneratedArtifacts() {
+        const confirmed = await Plugins.confirm('清空链式输出', '将删除“链式出口”本地订阅和策略组残留引用，但保留当前链式规则。确认继续？')
+        if (!confirmed) return
+
+        const profilesStore = Plugins.useProfilesStore()
+        await clearVirtualArtifacts({ subscribesStore, profilesStore, clearProfileUses: true })
+        Plugins.message.success('已清空链式输出；需要恢复时重新保存链路并应用配置')
       }
 
       return {
@@ -857,6 +1002,7 @@ async function showUI(profile) {
         editRule,
         removeRule,
         syncEnabled,
+        clearGeneratedArtifacts,
       }
     },
   }
